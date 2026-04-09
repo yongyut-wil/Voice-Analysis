@@ -1,6 +1,7 @@
 import { data } from "react-router";
 import { getAudioFileById, updateAudioFileStatus } from "~/lib/supabase.server";
 import { runAnalysis, cleanErrorMessage } from "~/lib/analysis.server";
+import { logger } from "~/lib/logger";
 import type { Route } from "./+types/analyze";
 
 export async function action({ request }: Route.ActionArgs) {
@@ -22,8 +23,11 @@ export async function action({ request }: Route.ActionArgs) {
 
   await updateAudioFileStatus(audioFileId, "processing");
 
+  logger.info("analyze:queued", { audioFileId, name: audioFile.original_name });
+
   runAnalysis(audioFileId, audioFile.filename, audioFile.original_name).catch(async (err) => {
     const message = cleanErrorMessage(err instanceof Error ? err.message : "Unknown error");
+    logger.error("analyze:failed", { audioFileId, error: message });
     await updateAudioFileStatus(audioFileId, "error", message);
   });
 

@@ -1,6 +1,7 @@
 import { data } from "react-router";
 import { uploadAudio } from "~/lib/minio.server";
 import { createAudioFile } from "~/lib/supabase.server";
+import { logger } from "~/lib/logger";
 import type { Route } from "./+types/upload";
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100 MB
@@ -41,6 +42,8 @@ export async function action({ request }: Route.ActionArgs) {
 
   const buffer = Buffer.from(await file.arrayBuffer());
 
+  logger.info("upload:start", { name: file.name, size: file.size, mime: mimeType });
+
   const { filename, storageUrl } = await uploadAudio(buffer, file.name, mimeType);
 
   const audioFile = await createAudioFile({
@@ -52,6 +55,8 @@ export async function action({ request }: Route.ActionArgs) {
     storage_url: storageUrl,
     status: "pending",
   });
+
+  logger.info("upload:done", { audioFileId: audioFile.id, filename, name: file.name });
 
   return data({ audioFileId: audioFile.id, filename }, { status: 201 });
 }

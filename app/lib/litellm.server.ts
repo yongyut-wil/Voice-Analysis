@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import type { AnalysisOutput, Emotion } from "~/types/analysis";
+import { logger } from "~/lib/logger";
 
 function getLiteLLMClient() {
   const baseURL = process.env.LITELLM_BASE_URL ?? "http://localhost:4000";
@@ -11,6 +12,9 @@ export async function transcribeAudio(buffer: Buffer, filename: string): Promise
   const client = getLiteLLMClient();
   const model = process.env.LITELLM_STT_MODEL ?? "whisper-1";
 
+  logger.info("stt:start", { model, filename, bytes: buffer.length });
+  const t0 = Date.now();
+
   const file = new File([new Uint8Array(buffer)], filename, { type: "audio/mpeg" });
 
   const transcription = await client.audio.transcriptions.create({
@@ -20,9 +24,11 @@ export async function transcribeAudio(buffer: Buffer, filename: string): Promise
     response_format: "text",
   });
 
-  return typeof transcription === "string"
-    ? transcription
-    : (transcription as { text: string }).text;
+  const result =
+    typeof transcription === "string" ? transcription : (transcription as { text: string }).text;
+
+  logger.info("stt:done", { model, chars: result.length, elapsed_ms: Date.now() - t0 });
+  return result;
 }
 
 const ANALYSIS_PROMPT = `คุณคือผู้เชี่ยวชาญด้านการวิเคราะห์เสียงสนทนา วิเคราะห์ข้อความต่อไปนี้จากการถอดเสียง แล้วตอบเป็น JSON เท่านั้น ห้ามมีข้อความอื่น
@@ -78,6 +84,9 @@ export async function analyzeTranscription(transcription: string): Promise<Analy
   const client = getLiteLLMClient();
   const model = process.env.LITELLM_ANALYSIS_MODEL ?? "claude-3-5-sonnet-20241022";
 
+  logger.info("llm:start", { model, input_chars: transcription.length });
+  const t0 = Date.now();
+
   const prompt = ANALYSIS_PROMPT.replace("{TRANSCRIPTION}", transcription);
 
   const response = await client.chat.completions.create({
@@ -88,5 +97,13 @@ export async function analyzeTranscription(transcription: string): Promise<Analy
   });
 
   const raw = response.choices[0]?.message?.content ?? "";
-  return parseAnalysisResponse(raw);
+  const result = parseAnalysisResponse(raw);
+
+  logger.info("llm:done", {
+    model,
+    emotion: result.emotion,
+    elapsed_ms: Date.now() - t0,
+  });
+
+  return result;
 }
