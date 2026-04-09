@@ -131,6 +131,8 @@ CREATE INDEX IF NOT EXISTS idx_analysis_audio_file_id ON analysis_results(audio_
 
 ### 4.1 Start MinIO ด้วย Docker
 
+**วิธีที่ 1 — docker-compose (แนะนำสำหรับ dev)**
+
 ```bash
 docker-compose up -d
 ```
@@ -141,6 +143,21 @@ docker-compose up -d
 docker ps
 # ควรเห็น voice-analysis-minio กำลัง running
 ```
+
+**วิธีที่ 2 — docker run (standalone ไม่ต้องมี compose)**
+
+```bash
+docker run -d \
+    --name minio \
+    -p 9000:9000 \
+    -p 9001:9001 \
+    -e MINIO_ROOT_USER=minioadmin \
+    -e MINIO_ROOT_PASSWORD=minioadmin123 \
+    -v ~/minio-data:/data \
+    minio/minio server /data --console-address ":9001"
+```
+
+ข้อมูลจะเก็บที่ `~/minio-data` บน host — ไม่หายเมื่อ container หยุด
 
 ### 4.2 สร้าง Bucket
 
