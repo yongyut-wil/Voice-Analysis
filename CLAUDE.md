@@ -18,15 +18,20 @@ app/
   routes/
     home.tsx              # หน้าแรก — upload
     analyses.tsx          # ประวัติการวิเคราะห์ (loader)
-    analyses.$id.tsx      # รายละเอียด (loader)
+    analyses.$id.tsx      # รายละเอียด (loader) + RetryButton
+    well-known.tsx        # /.well-known/* → 404 เงียบๆ
     api/upload.tsx        # POST /api/upload — MinIO + Supabase
-    api/analyze.tsx       # POST /api/analyze — Whisper + Claude
+    api/analyze.tsx       # POST /api/analyze — fire-and-forget, return 202
+    api/retry.tsx         # POST /api/retry/:id — ลบ result เก่า แล้วเริ่มใหม่
+    api/status.tsx        # GET /api/status/:id — polling endpoint
   lib/
     supabase.server.ts    # DB operations (server only)
     minio.server.ts       # File storage (server only)
     litellm.server.ts     # AI calls (server only)
+    analysis.server.ts    # runAnalysis() — shared logic สำหรับ analyze + retry
+    error-utils.ts        # cleanErrorMessage() — ใช้ได้ทั้ง client และ server
   components/
-    audio-uploader.tsx    # Dropzone + upload/analyze flow
+    audio-uploader.tsx    # Dropzone + upload/analyze flow + client polling
     audio-player.tsx      # HTML5 player ด้วย presigned URL
     emotion-badge.tsx     # แสดง positive/neutral/negative
   types/
@@ -66,8 +71,14 @@ docs/
 
 - ใช้ shadcn components จาก `~/components/ui/` ก่อนสร้างใหม่
 - Icons: Lucide React เท่านั้น ห้ามใช้ emoji ใน component
-- Font: Geist Variable (Latin) + Noto Sans Thai — อย่าเพิ่ม Google Fonts อื่น
+- Font: Noto Sans Thai ผ่าน Google Fonts `<link>` ใน `root.tsx` — อย่าเพิ่ม font อื่น
 - สี: ใช้ CSS variables (`--primary`, `--muted-foreground`) ไม่ hardcode สี
+
+### Error Handling
+
+- `cleanErrorMessage()` อยู่ใน `~/lib/error-utils.ts` — import ได้ทั้ง client และ server
+- ห้าม import จาก `~/lib/analysis.server` ใน route component ที่ render บน client
+  เพราะ Vite จะพัง (Server-only module referenced by client)
 
 ### TypeScript
 
@@ -77,10 +88,14 @@ docs/
 
 ## Known Limitations (MVP)
 
-1. **Synchronous analyze** — ถ้า browser ปิดระหว่าง process ไฟล์จะค้างที่ `processing`
-   - แก้ด้วยการเปลี่ยน status เป็น `error` ใน Supabase แล้ว upload ใหม่
-2. **ไม่มี Auth** — ทุกคนที่เข้าถึง URL เห็นข้อมูลทั้งหมด (ดู `docs/auth-migration.md`)
-3. **ไม่มี Polling** — หน้า /analyses ต้อง refresh เองเพื่อเห็นสถานะใหม่
+1. **Server restart ระหว่าง analyze** — fire-and-forget รันใน Node.js process ถ้า server restart ไฟล์จะค้างที่ `processing`
+   - Workaround: แก้ status เป็น `error` ใน Supabase แล้วกด Retry
+   - แนวทางถาวร: ย้ายไปใช้ N8N workflow (trigger webhook แทน runAnalysis โดยตรง)
+2. **Cloudflare 524 Timeout** — LiteLLM proxy อยู่หลัง Cloudflare timeout 100s ไฟล์เสียงยาวอาจ timeout
+   - Workaround: ใช้ไฟล์ที่เล็กลง หรือ retry (server อาจไม่ยุ่งแล้ว)
+   - แนวทางถาวร: เพิ่ม timeout ใน Cloudflare dashboard หรือ bypass ผ่าน Netbird IP
+3. **ไม่มี Auth** — ทุกคนที่เข้าถึง URL เห็นข้อมูลทั้งหมด (ดู `docs/auth-migration.md`)
+4. **หน้า /analyses ไม่ Real-time** — ต้อง refresh เองเพื่อเห็นสถานะใหม่
 
 ## Environment Variables ที่จำเป็น
 
@@ -116,3 +131,14 @@ docker-compose up -d  # Start MinIO
 - ติดตั้ง package: `yarn add <package>`
 - ติดตั้ง dev package: `yarn add -D <package>`
 - Lock file: `yarn.lock` (ห้าม commit `package-lock.json`)
+
+## Git Workflow
+
+```
+main ← staging ← develop ← yongyut/feat-xxx
+```
+
+- Branch ชื่อ: `<name>/<type>-<desc>` เช่น `yongyut/feat-add-delete-button`
+- Conventional commit types: `feat`, `fix`, `refactor`, `docs`, `chore`
+- PR flow: feature branch → develop → staging → main
+- main = production, deploy อัตโนมัติผ่าน GitHub Actions + Coolify

@@ -86,33 +86,37 @@ Voice Analysis/
 ├── app/
 │   ├── components/           # UI Components
 │   │   ├── audio-player.tsx  # เล่นเสียงจาก MinIO
-│   │   ├── audio-uploader.tsx# Dropzone + progress
+│   │   ├── audio-uploader.tsx# Dropzone + progress + polling
 │   │   ├── emotion-badge.tsx # แสดงอารมณ์ (สี + label)
 │   │   └── ui/               # shadcn base components
 │   ├── lib/
-│   │   ├── supabase.server.ts  # Database operations
-│   │   ├── minio.server.ts     # File storage operations
-│   │   ├── litellm.server.ts   # AI (Whisper + Claude)
+│   │   ├── supabase.server.ts  # Database operations (server only)
+│   │   ├── minio.server.ts     # File storage operations (server only)
+│   │   ├── litellm.server.ts   # AI (Whisper + Claude) (server only)
+│   │   ├── analysis.server.ts  # runAnalysis() shared logic (server only)
+│   │   ├── error-utils.ts      # cleanErrorMessage() (client + server)
 │   │   └── utils.ts            # ฟังก์ชันทั่วไป
 │   ├── routes/
 │   │   ├── home.tsx            # หน้าแรก
 │   │   ├── analyses.tsx        # ประวัติการวิเคราะห์
-│   │   ├── analyses.$id.tsx    # รายละเอียด
+│   │   ├── analyses.$id.tsx    # รายละเอียด + RetryButton
 │   │   ├── well-known.tsx      # จัดการ /.well-known/* (return 404 เงียบๆ)
 │   │   └── api/
 │   │       ├── upload.tsx      # POST /api/upload
-│   │       ├── analyze.tsx     # POST /api/analyze (fire-and-forget)
+│   │       ├── analyze.tsx     # POST /api/analyze (fire-and-forget, return 202)
+│   │       ├── retry.tsx       # POST /api/retry/:id (ลบ result เก่า + เริ่มใหม่)
 │   │       └── status.tsx      # GET /api/status/:id (polling)
 │   ├── types/
 │   │   └── analysis.ts         # TypeScript types
 │   ├── app.css                 # Global styles + theme
-│   ├── root.tsx                # Root layout + fonts
+│   ├── root.tsx                # Root layout + Google Fonts
 │   └── routes.ts               # Route definitions
 ├── supabase/
 │   └── migrations/
 │       └── 001_initial.sql     # Database schema
+├── docs/                       # เอกสารโปรเจกต์
 ├── docker-compose.yml          # MinIO local dev
-├── Dockerfile                  # Production container
+├── Dockerfile                  # Production container (multi-stage, yarn)
 └── package.json
 ```
 
@@ -225,7 +229,27 @@ Client → POST /api/analyze { audioFileId }
 - ไฟล์เสียงยาวอาจใช้เวลา 1–3 นาที → เกิน timeout
 - การ return ทันทีแล้วให้ client polling แก้ปัญหานี้ได้โดยไม่ต้องเปลี่ยน infrastructure
 
-### 5.3 GET /api/status/:id
+### 5.3 POST /api/retry/:id
+
+**หน้าที่:** วิเคราะห์ใหม่สำหรับไฟล์ที่ error — ลบ result เก่าแล้วเริ่ม background job ใหม่
+
+```
+Client → POST /api/retry/:id
+              ↓
+         ตรวจสอบ: ไม่อนุญาตถ้า status = 'processing' (409)
+              ↓
+         deleteAnalysisResultByFileId() — ลบ result เก่า
+              ↓
+         updateStatus → 'processing'
+              ↓
+         runAnalysis() — fire-and-forget (ไม่ await)
+              ↓
+         return 202 { audioFileId, status: "processing" }
+```
+
+Client จะ poll `/api/status/:id` ทุก 3 วินาทีหลังได้รับ 202 เช่นเดียวกับ analyze
+
+### 5.4 GET /api/status/:id
 
 **หน้าที่:** ให้ client poll สถานะของ audioFile
 
@@ -438,16 +462,26 @@ interface AnalysisOutput {
 
 ### Font Strategy
 
-ใช้ 2 fonts คู่กัน:
+ใช้ **Noto Sans Thai** จาก Google Fonts โหลดผ่าน `<link>` preconnect ใน `root.tsx`:
 
-- **Geist Variable** (npm package) — ตัวอักษร Latin/UI ทุกอย่าง
-- **Noto Sans Thai** (Google Fonts) — ตัวอักษรไทยทั้งหมด
-
-```css
---font-sans: "Geist Variable", "Noto Sans Thai", sans-serif;
+```typescript
+// root.tsx
+export const links: Route.LinksFunction = () => [
+  { rel: "preconnect", href: "https://fonts.googleapis.com" },
+  { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
+  {
+    rel: "stylesheet",
+    href: "https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;600&display=swap",
+  },
+];
 ```
 
-Browser จะใช้ Geist สำหรับ A-Z และ Noto Sans Thai สำหรับ ก-ฮ โดยอัตโนมัติ
+```css
+--font-sans: "Noto Sans Thai", ui-sans-serif, system-ui, sans-serif;
+```
+
+**หมายเหตุ:** เดิมพยายามใช้ `@fontsource/noto-sans-thai` (self-hosted) แต่ต้อง install package แยก
+ปัจจุบันใช้ Google Fonts ซึ่งไม่ต้อง install อะไรเพิ่ม
 
 ### Color System
 
@@ -522,12 +556,22 @@ CMD ["yarn", "start"]
 
 ## 12. สิ่งที่ยังไม่ได้ทำ (Known Limitations)
 
-### Background Processing (partial)
+### Server Restart ระหว่าง Analyze
 
 ปัจจุบัน fire-and-forget ทำงานใน Node.js process — ถ้า **server restart** ระหว่าง analyze ไฟล์จะค้างที่ `processing` ตลอดไป
 
-**Workaround:** แก้ status ด้วยมือใน Supabase แล้ว upload ใหม่  
-**แนวทางแก้ถาวร:** ย้ายไป Supabase Edge Functions หรือ job queue
+**Workaround:** แก้ status ด้วยมือใน Supabase เป็น `error` แล้วกด Retry ใน UI  
+**แนวทางแก้ถาวร:** ย้ายไปใช้ **N8N workflow** — app trigger webhook ไป N8N แทน `runAnalysis()` โดยตรง, N8N จัดการ retry และ error handling เอง
+
+### Cloudflare 524 Timeout
+
+LiteLLM proxy บน `models.thcloud.ai` อยู่หลัง Cloudflare ที่มี timeout 100 วินาที ไฟล์เสียงที่ยาวมากอาจ timeout
+
+**Workaround:** ลดขนาดไฟล์ หรือ retry (server อาจไม่ยุ่งแล้ว)  
+**แนวทางแก้ถาวร:**
+
+- เพิ่ม timeout ใน Cloudflare dashboard ของ `models.thcloud.ai`
+- หรือ bypass ผ่าน Netbird IP ตรงโดยไม่ผ่าน Cloudflare
 
 ### ไม่มี Authentication
 
@@ -583,6 +627,40 @@ NODE_ENV=development
 | lucide-react          | 1.x     | Icons                                    |
 | tailwindcss           | 4.x     | Utility CSS                              |
 | shadcn                | 4.x     | UI component system                      |
+
+---
+
+---
+
+## 15. Git Workflow
+
+```
+main ← staging ← develop ← yongyut/feat-xxx
+```
+
+| Branch           | ใช้ทำอะไร                                                  |
+| ---------------- | ---------------------------------------------------------- |
+| `main`           | Production — deploy อัตโนมัติผ่าน GitHub Actions + Coolify |
+| `staging`        | ทดสอบกับ environment ใกล้ production ก่อน merge            |
+| `develop`        | รวม feature ก่อน test                                      |
+| `name/type-desc` | Feature branch ของแต่ละคน                                  |
+
+**Convention ชื่อ branch:** `<name>/<type>-<desc>` เช่น `yongyut/feat-add-delete-button`  
+**Conventional commit types:** `feat`, `fix`, `refactor`, `docs`, `chore`
+
+---
+
+## 16. Code Quality
+
+| Tool       | ใช้ทำอะไร                                     |
+| ---------- | --------------------------------------------- |
+| ESLint     | Linting — flat config (`eslint.config.js`)    |
+| Prettier   | Code formatting (`.prettierrc`)               |
+| Husky      | Pre-commit hook — รัน lint + format อัตโนมัติ |
+| TypeScript | Type checking (`yarn typecheck`)              |
+
+**หมายเหตุ ESLint:** ใช้ ESLint 10 + `eslint-plugin-react-hooks` เท่านั้น  
+ไม่ใช้ `eslint-plugin-react` เพราะ v7.x ยังไม่รองรับ ESLint 10 (context API เปลี่ยน)
 
 ---
 

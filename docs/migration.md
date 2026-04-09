@@ -228,12 +228,36 @@ services:
 
 ---
 
+## Git Workflow
+
+```bash
+# Clone แล้วสร้าง local branches ให้ครบ
+git checkout -b develop
+git checkout -b staging
+git checkout master  # หรือ main
+
+# สร้าง feature branch จาก develop
+git checkout develop
+git checkout -b yongyut/feat-my-feature
+
+# หลัง commit เสร็จ push ขึ้น remote
+git push origin yongyut/feat-my-feature
+
+# สร้าง PR: yongyut/feat-xxx → develop
+```
+
+**Convention ชื่อ branch:** `<name>/<type>-<desc>`  
+**Conventional commit types:** `feat`, `fix`, `refactor`, `docs`, `chore`
+
+---
+
 ## Troubleshooting
 
-| ปัญหา                         | สาเหตุ                               | วิธีแก้                                                   |
-| ----------------------------- | ------------------------------------ | --------------------------------------------------------- |
-| `SUPABASE_URL is not defined` | ไม่มีไฟล์ `.env`                     | `cp .env.example .env` แล้วกรอกค่า                        |
-| `MinIO connection refused`    | Docker ไม่ได้รัน                     | `docker-compose up -d`                                    |
-| `524 Timeout` จาก LiteLLM     | ไฟล์ใหญ่เกิน / server โหลดหนัก       | ลองไฟล์เล็กลง หรือรอแล้วลองใหม่                           |
-| Status ค้างที่ `processing`   | Server ถูก interrupt ระหว่าง analyze | ไปที่ Supabase → แก้ status เป็น `error` แล้ว upload ใหม่ |
-| Table ไม่มีใน Supabase        | ยังไม่ได้ run migration              | ทำขั้นตอนที่ 3                                            |
+| ปัญหา                         | สาเหตุ                                    | วิธีแก้                                                                   |
+| ----------------------------- | ----------------------------------------- | ------------------------------------------------------------------------- |
+| `SUPABASE_URL is not defined` | ไม่มีไฟล์ `.env`                          | `cp .env.example .env` แล้วกรอกค่า                                        |
+| `MinIO connection refused`    | Docker ไม่ได้รัน                          | `docker-compose up -d`                                                    |
+| `524 Timeout` จาก LiteLLM     | ไฟล์ใหญ่เกิน / server โหลดหนัก            | ลองไฟล์เล็กลง หรือกด Retry ใน UI                                          |
+| Status ค้างที่ `processing`   | Server restart ระหว่าง analyze            | ไปที่ Supabase → แก้ status เป็น `error` แล้วกด Retry ใน UI               |
+| Table ไม่มีใน Supabase        | ยังไม่ได้ run migration                   | ทำขั้นตอนที่ 3                                                            |
+| ESLint error pre-commit hook  | `eslint-plugin-react` ไม่รองรับ ESLint 10 | ตรวจสอบ `eslint.config.js` ว่าไม่ได้ใช้ `reactPlugin.configs.recommended` |

@@ -69,7 +69,7 @@ export function createSupabaseServerClient(request: Request, headers: Headers) {
 Dependencies เพิ่มเติม:
 
 ```bash
-npm install @supabase/ssr
+yarn add @supabase/ssr
 ```
 
 ---
