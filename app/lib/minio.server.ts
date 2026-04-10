@@ -57,6 +57,12 @@ export async function getPresignedUrl(filename: string, expirySeconds = 3600): P
   return client.presignedGetObject(bucket, filename, expirySeconds);
 }
 
+export async function deleteAudio(filename: string): Promise<void> {
+  const client = getMinioClient();
+  const bucket = getBucketName();
+  await client.removeObject(bucket, filename);
+}
+
 export async function downloadAudio(filename: string): Promise<Buffer> {
   const client = getMinioClient();
   const bucket = getBucketName();
