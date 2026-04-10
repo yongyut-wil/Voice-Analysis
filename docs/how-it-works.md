@@ -235,6 +235,68 @@ Route นี้มี loader ที่ดึงข้อมูลจาก Supab
 
 ---
 
+## แนวทางเพิ่มเติม — Audio Playback (ยังไม่ได้ implement)
+
+ปัจจุบันไฟล์เสียงถูกลบจาก MinIO ทันทีหลัง analyze เสร็จ ทำให้ไม่สามารถเล่นเสียงย้อนหลังได้
+`AudioPlayer` component ยังมีอยู่ใน `app/components/audio-player.tsx` และสามารถนำกลับมาใช้ได้
+
+### วิธี re-enable Audio Playback
+
+**ขั้นที่ 1 — หยุดลบไฟล์หลัง analyze**
+
+ใน `app/lib/analysis.server.ts` ลบหรือ comment บรรทัด `deleteAudio(...)` ออก:
+
+```ts
+// ลบส่วนนี้ออก
+deleteAudio(filename)
+  .then(() => {})
+  .catch(...)
+```
+
+**ขั้นที่ 2 — คืน presignedUrl ใน loader**
+
+ใน `app/routes/analyses.$id.tsx` เพิ่มกลับ:
+
+```ts
+import { getPresignedUrl } from "~/lib/minio.server";
+
+// ใน loader:
+let presignedUrl: string | null = null;
+try {
+  presignedUrl = await getPresignedUrl(file.filename);
+} catch {
+  // ไฟล์ถูกลบหรือ MinIO ไม่พร้อม — ไม่ crash
+}
+return { file: cleanedFile, analysis, presignedUrl };
+```
+
+**ขั้นที่ 3 — แสดง AudioPlayer ใน UI**
+
+```tsx
+import { AudioPlayer } from "~/components/audio-player";
+
+// ใน component:
+{
+  presignedUrl && (
+    <Card className="mb-6">
+      <CardContent className="pt-6">
+        <AudioPlayer src={presignedUrl} />
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+### สิ่งที่ต้องทำเพิ่มถ้าเปิดใช้
+
+| รายการ                    | รายละเอียด                                                                                           |
+| ------------------------- | ---------------------------------------------------------------------------------------------------- |
+| นโยบายลบไฟล์              | ไฟล์จะสะสมใน MinIO ไม่มีสิ้นสุด — ควรตั้ง lifecycle rule ลบอัตโนมัติเช่น 30 วัน หรือให้ user กดลบเอง |
+| Presigned URL หมดอายุ     | default 1 ชั่วโมง — ถ้าเปิดหน้าค้างไว้นานกว่านั้น player จะ error ต้อง refresh                       |
+| Retry กับไฟล์ที่ยังมีอยู่ | ปัจจุบัน retry ล้มเหลวถ้าไฟล์ถูกลบ — ถ้าเก็บไฟล์ไว้ retry จะทำงานได้ตามปกติ                          |
+
+---
+
 ## สรุป Flow ทั้งหมด
 
 ```

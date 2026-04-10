@@ -2,9 +2,7 @@ import type { Route } from "./+types/analyses.$id";
 import { Link, data, useNavigate, useRevalidator } from "react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getAudioFileById } from "~/lib/supabase.server";
-import { getPresignedUrl } from "~/lib/minio.server";
 import { cleanErrorMessage } from "~/lib/error-utils";
-import { AudioPlayer } from "~/components/audio-player";
 import { EmotionBadge } from "~/components/emotion-badge";
 import { Progress } from "~/components/ui/progress";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
@@ -23,19 +21,12 @@ export async function loader({ params }: Route.LoaderArgs) {
   const file = await getAudioFileById(params.id);
   if (!file) throw data("ไม่พบไฟล์", { status: 404 });
 
-  let presignedUrl: string | null = null;
-  try {
-    presignedUrl = await getPresignedUrl(file.filename);
-  } catch {
-    // MinIO ไม่พร้อมหรือไฟล์ถูกลบ — แสดง player ไม่ได้แต่ไม่ crash
-  }
-
   const analysis = file.analysis_results?.[0] ?? null;
   const cleanedFile = {
     ...file,
     error_message: file.error_message ? cleanErrorMessage(file.error_message) : null,
   };
-  return { file: cleanedFile, analysis, presignedUrl };
+  return { file: cleanedFile, analysis };
 }
 
 function formatDate(iso: string) {
@@ -118,7 +109,7 @@ function RetryButton({ audioFileId }: { audioFileId: string }) {
 }
 
 export default function AnalysisDetail({ loaderData }: Route.ComponentProps) {
-  const { file, analysis, presignedUrl } = loaderData;
+  const { file, analysis } = loaderData;
 
   return (
     <main className="bg-background min-h-screen">
@@ -143,15 +134,6 @@ export default function AnalysisDetail({ loaderData }: Route.ComponentProps) {
             </div>
           </div>
         </div>
-
-        {/* Audio Player */}
-        {presignedUrl && (
-          <Card className="mb-6">
-            <CardContent className="pt-6">
-              <AudioPlayer src={presignedUrl} />
-            </CardContent>
-          </Card>
-        )}
 
         {/* Status: Processing */}
         {file.status === "processing" && (
@@ -185,7 +167,7 @@ export default function AnalysisDetail({ loaderData }: Route.ComponentProps) {
             {analysis.illegal_detected && (
               <Alert variant="destructive">
                 <AlertTriangle className="h-4 w-4" />
-                <AlertTitle>⚠️ ตรวจพบเนื้อหาที่น่าสงสัย</AlertTitle>
+                <AlertTitle>ตรวจพบเนื้อหาที่น่าสงสัย</AlertTitle>
                 <AlertDescription>
                   {analysis.illegal_details ?? "พบการกล่าวถึงสิ่งที่อาจผิดกฎหมายในการสนทนา"}
                 </AlertDescription>
@@ -248,12 +230,9 @@ export default function AnalysisDetail({ loaderData }: Route.ComponentProps) {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <textarea
-                    readOnly
-                    value={analysis.transcription}
-                    rows={8}
-                    className="bg-muted w-full resize-none rounded-lg p-4 font-mono text-sm leading-relaxed focus:outline-none"
-                  />
+                  <div className="bg-muted max-h-64 overflow-y-auto rounded-lg p-4 text-sm leading-relaxed break-words whitespace-pre-wrap">
+                    {analysis.transcription}
+                  </div>
                 </CardContent>
               </Card>
             )}

@@ -1,6 +1,6 @@
 import type { Route } from "./+types/analyses";
 import { Link } from "react-router";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, AlertTriangle } from "lucide-react";
 import { getAudioFiles } from "~/lib/supabase.server";
 import { EmotionBadge } from "~/components/emotion-badge";
 import {
@@ -129,7 +129,10 @@ export default function Analyses({ loaderData }: Route.ComponentProps) {
                       <TableCell>
                         {analysis ? (
                           analysis.illegal_detected ? (
-                            <span className="text-destructive text-sm font-medium">⚠️ พบ</span>
+                            <span className="text-destructive flex items-center gap-1 text-sm font-medium">
+                              <AlertTriangle className="h-3.5 w-3.5" />
+                              พบ
+                            </span>
                           ) : (
                             <span className="text-muted-foreground text-sm">ปกติ</span>
                           )
