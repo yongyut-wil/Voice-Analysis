@@ -290,16 +290,33 @@ await minioClient.putObject(bucket, filename, buffer, size, { "Content-Type": mi
 const url = await minioClient.presignedGetObject(bucket, filename, 3600);
 ```
 
-### 6.2 LiteLLM Proxy
+### 6.2 Speech-to-Text (STT)
 
-**ทำไมใช้ LiteLLM แทนเรียก OpenAI/Anthropic โดยตรง?**
+ระบบเลือก STT provider อัตโนมัติตาม environment variable:
 
-- เปลี่ยน model ได้โดยแก้แค่ `LITELLM_ANALYSIS_MODEL` ใน `.env`
-- ไม่ต้องแก้ code เลย
-- Centralize API key management
-- Rate limiting, logging, fallback อยู่ที่ proxy
+| env var `DEEPGRAM_API_KEY` | Provider ที่ใช้              |
+| -------------------------- | ---------------------------- |
+| ตั้งค่าอยู่                | **Deepgram Nova-3** (แนะนำ)  |
+| ไม่ได้ตั้งค่า              | LiteLLM → Whisper (fallback) |
 
-**Whisper (Speech-to-Text):**
+**Deepgram Nova-3 (แนะนำ):**
+
+เรียกผ่าน REST API โดยตรง ไม่ผ่าน LiteLLM proxy — หลีกเลี่ยง Cloudflare timeout:
+
+```typescript
+const res = await fetch(
+  `https://api.deepgram.com/v1/listen?model=nova-3&language=th&smart_format=true`,
+  {
+    method: "POST",
+    headers: { Authorization: `Token ${apiKey}`, "Content-Type": contentType },
+    body: new Uint8Array(buffer),
+  }
+);
+```
+
+ข้อดี: เร็วกว่า Whisper, รองรับภาษาไทยได้ดีกว่า, ไม่มีปัญหา syllable-splitting
+
+**Whisper via LiteLLM (fallback):**
 
 ```typescript
 const response = await openai.audio.transcriptions.create({
@@ -309,6 +326,26 @@ const response = await openai.audio.transcriptions.create({
   response_format: "text",
 });
 ```
+
+**Thai Post-processing (`cleanThaiText`):**
+
+Whisper มีปัญหาแยก syllable ภาษาไทยด้วยช่องว่าง เช่น `การ จัด เย บ น ุ่ม` แทนที่จะเป็น `การจัดเย็บนุ่ม` — ทั้ง Deepgram และ LiteLLM path ผ่าน `cleanThaiText()` ก่อน return:
+
+```typescript
+function cleanThaiText(text: string): string {
+  // ลบช่องว่างระหว่างตัวอักษรไทย (U+0E00–U+0E7F) รวม vowel signs
+  return text.replace(/(?<=[\u0E00-\u0E7F]) (?=[\u0E00-\u0E7F])/g, "");
+}
+```
+
+### 6.3 LiteLLM Proxy (Analysis)
+
+**ทำไมใช้ LiteLLM แทนเรียก Anthropic โดยตรง?**
+
+- เปลี่ยน model ได้โดยแก้แค่ `LITELLM_ANALYSIS_MODEL` ใน `.env`
+- ไม่ต้องแก้ code เลย
+- Centralize API key management
+- Rate limiting, logging, fallback อยู่ที่ proxy
 
 **Claude (Analysis):**
 
@@ -603,30 +640,64 @@ MINIO_ACCESS_KEY=minioadmin
 MINIO_SECRET_KEY=minioadmin123
 MINIO_BUCKET_NAME=voice-analysis
 
-# LiteLLM
+# LiteLLM (ใช้สำหรับ analysis เสมอ, STT ใช้เป็น fallback ถ้าไม่มี Deepgram)
 LITELLM_BASE_URL=https://models.thcloud.ai/v1
 LITELLM_API_KEY=sk-...
 LITELLM_STT_MODEL=openai/whisper-1
 LITELLM_ANALYSIS_MODEL=claude-sonnet-4-6
 
+# Deepgram (optional — ถ้าตั้งค่าจะใช้แทน Whisper สำหรับ STT)
+DEEPGRAM_API_KEY=
+
 # App
 NODE_ENV=development
 ```
 
+**STT Provider Selection:**
+
+- `DEEPGRAM_API_KEY` มีค่า → ใช้ Deepgram Nova-3 (แนะนำ)
+- `DEEPGRAM_API_KEY` ว่างหรือไม่มี → ใช้ LiteLLM Whisper
+
 ---
 
-## 14. Dependencies หลัก
+## 14. Logging
 
-| Package               | Version | ใช้ทำอะไร                                |
-| --------------------- | ------- | ---------------------------------------- |
-| react-router          | 7.14.0  | SSR framework + routing + server actions |
-| @supabase/supabase-js | 2.x     | PostgreSQL client                        |
-| minio                 | 8.x     | Object storage client                    |
-| openai                | 6.x     | LiteLLM/OpenAI API client                |
-| react-dropzone        | 15.x    | Drag & drop file upload                  |
-| lucide-react          | 1.x     | Icons                                    |
-| tailwindcss           | 4.x     | Utility CSS                              |
-| shadcn                | 4.x     | UI component system                      |
+ระบบใช้ `app/lib/logger.ts` สำหรับ structured logging ทุก server-side operation:
+
+| Environment | Format                                                           |
+| ----------- | ---------------------------------------------------------------- |
+| Development | Colorized ANSI — `HH:MM:SS  INFO  msg  key=val`                  |
+| Production  | JSON lines — `{"ts":"...","level":"info","msg":"...","key":val}` |
+
+**Log events หลัก:**
+
+| Event                              | เมื่อไหร่                             |
+| ---------------------------------- | ------------------------------------- |
+| `stt:start`                        | เริ่มส่งไฟล์ไป STT provider           |
+| `stt:waiting`                      | heartbeat ทุก 15s ระหว่างรอ STT       |
+| `stt:done`                         | STT เสร็จ พร้อม elapsed_ms            |
+| `llm:start` / `llm:done`           | เริ่ม/เสร็จ LLM analysis              |
+| `llm:raw`                          | 200 chars แรกของ LLM response (debug) |
+| `analysis:start` → `analysis:done` | ทุก step ใน `runAnalysis()`           |
+
+Heartbeat `setInterval` ทุก 15 วินาทีระหว่าง await STT — ช่วยให้รู้ว่า server ยังทำงานอยู่ ไม่ใช่ hung
+
+---
+
+## 15. Dependencies หลัก
+
+| Package               | Version | ใช้ทำอะไร                                 |
+| --------------------- | ------- | ----------------------------------------- |
+| react-router          | 7.14.0  | SSR framework + routing + server actions  |
+| @supabase/supabase-js | 2.x     | PostgreSQL client                         |
+| minio                 | 8.x     | Object storage client                     |
+| openai                | 6.x     | LiteLLM/OpenAI API client (analysis only) |
+| react-dropzone        | 15.x    | Drag & drop file upload                   |
+| lucide-react          | 1.x     | Icons                                     |
+| tailwindcss           | 4.x     | Utility CSS                               |
+| shadcn                | 4.x     | UI component system                       |
+
+Deepgram ไม่ใช้ SDK — เรียกผ่าน built-in `fetch` โดยตรง ไม่ต้องติดตั้ง package เพิ่ม
 
 ---
 
@@ -664,4 +735,4 @@ main ← staging ← develop ← yongyut/feat-xxx
 
 ---
 
-_สร้างเมื่อ 2026-04-09 · อัพเดตล่าสุด 2026-04-09_
+_สร้างเมื่อ 2026-04-09 · อัพเดตล่าสุด 2026-04-10_

@@ -18,12 +18,14 @@ export interface AnalysisResult {
   id: string;
   audio_file_id: string;
   transcription: string | null;
+  summary: string | null;
   emotion: Emotion | null;
   emotion_score: number | null;
   satisfaction_score: number | null;
   illegal_detected: boolean;
   illegal_details: string | null;
   model_used: string | null;
+  stt_model_used: string | null;
   processing_time_ms: number | null;
   created_at: string;
 }
@@ -38,6 +40,7 @@ export interface AnalysisOutput {
   satisfaction_score: number;
   illegal_detected: boolean;
   illegal_details: string | null;
+  summary: string | null;
 }
 
 export const EMOTION_LABELS: Record<Emotion, string> = {

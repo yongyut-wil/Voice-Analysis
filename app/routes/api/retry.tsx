@@ -4,7 +4,8 @@ import {
   updateAudioFileStatus,
   deleteAnalysisResultByFileId,
 } from "~/lib/supabase.server";
-import { runAnalysis, cleanErrorMessage } from "~/lib/analysis.server";
+import { runAnalysis } from "~/lib/analysis.server";
+import { cleanErrorMessage, extractErrorMessage } from "~/lib/error-utils";
 import { logger } from "~/lib/logger";
 import type { Route } from "./+types/retry";
 
@@ -30,7 +31,7 @@ export async function action({ request, params }: Route.ActionArgs) {
   logger.info("retry:queued", { audioFileId: id, name: audioFile.original_name });
 
   runAnalysis(id, audioFile.filename, audioFile.original_name).catch(async (err) => {
-    const message = cleanErrorMessage(err instanceof Error ? err.message : "Unknown error");
+    const message = cleanErrorMessage(extractErrorMessage(err));
     logger.error("retry:failed", { audioFileId: id, error: message });
     await updateAudioFileStatus(id, "error", message);
   });

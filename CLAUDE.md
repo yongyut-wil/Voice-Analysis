@@ -7,7 +7,8 @@
 - **Framework**: React Router v7 (SSR, framework mode) — ใช้ loader/action pattern เสมอ
 - **Database**: Supabase (PostgreSQL) — ใช้ service role key ฝั่ง server เท่านั้น
 - **Storage**: MinIO (S3-compatible) — bucket `voice-analysis`
-- **AI**: LiteLLM proxy → Whisper (STT) + Claude Sonnet (analysis)
+- **AI (STT)**: Deepgram Nova-3 (direct API, แนะนำ) หรือ LiteLLM → `gpt-4o-mini-transcribe` / Whisper (fallback)
+- **AI (Analysis)**: LiteLLM proxy → Claude Sonnet
 - **UI**: shadcn/ui + TailwindCSS v4 + Lucide icons
 - **Language**: TypeScript strict mode
 
@@ -27,9 +28,10 @@ app/
   lib/
     supabase.server.ts    # DB operations (server only)
     minio.server.ts       # File storage (server only)
-    litellm.server.ts     # AI calls (server only)
-    analysis.server.ts    # runAnalysis() — shared logic สำหรับ analyze + retry
-    error-utils.ts        # cleanErrorMessage() — ใช้ได้ทั้ง client และ server
+    litellm.server.ts     # AI calls — STT (Deepgram/LiteLLM) + LLM analysis (server only)
+    analysis.server.ts    # runAnalysis() — shared logic สำหรับ analyze + retry (server only)
+    error-utils.ts        # cleanErrorMessage(), extractErrorMessage() — ใช้ได้ทั้ง client และ server
+    logger.ts             # Structured logging — ANSI color (dev) / JSON (production)
   components/
     audio-uploader.tsx    # Dropzone + upload/analyze flow + client polling
     audio-player.tsx      # HTML5 player ด้วย presigned URL
@@ -59,6 +61,7 @@ docs/
 - Tables: `audio_files`, `analysis_results`
 - Status lifecycle: `pending → processing → done | error`
 - Emotion values: `'positive' | 'neutral' | 'negative'` (lowercase เสมอ)
+- `analysis_results` มี columns เพิ่มเติม: `summary TEXT`, `stt_model_used TEXT`
 - ไม่มี migration tool — run SQL ตรงใน Supabase SQL Editor
 
 ### Routing
@@ -76,7 +79,10 @@ docs/
 
 ### Error Handling
 
-- `cleanErrorMessage()` อยู่ใน `~/lib/error-utils.ts` — import ได้ทั้ง client และ server
+- `extractErrorMessage(err)` — แปลง unknown error เป็น string รวม `err.body` (OpenAI SDK errors)
+- `cleanErrorMessage(raw)` — แปลง raw error เป็นข้อความสั้นที่เหมาะกับ UI + DB
+- ทั้งคู่อยู่ใน `~/lib/error-utils.ts` — import ได้ทั้ง client และ server
+- ใน catch block ของ route ให้ใช้ `cleanErrorMessage(extractErrorMessage(err))` เสมอ
 - ห้าม import จาก `~/lib/analysis.server` ใน route component ที่ render บน client
   เพราะ Vite จะพัง (Server-only module referenced by client)
 
@@ -86,14 +92,22 @@ docs/
 - Route types มาจาก `./+types/<route-name>` (auto-generated)
 - ไม่ใช้ `any` — ใช้ `unknown` แล้ว narrow แทน
 
+### AI Pipeline
+
+- `transcribeAudio(buffer, filename)` return `{ transcription, sttModel }` — ไม่ใช่ string เปล่าอีกต่อไป
+- `analyzeTranscription(text)` return `AnalysisOutput` ซึ่งรวม `summary` ด้วย
+- Post-processing pipeline (LiteLLM path): `removeRepetitions(cleanThaiText(raw))`
+- `max_tokens: 1024` สำหรับ analysis — เพื่อให้ summary ไม่ถูกตัดกลางคัน
+- Deepgram params: `model=nova-3&language=th&smart_format=true&punctuate=true`
+
 ## Known Limitations (MVP)
 
 1. **Server restart ระหว่าง analyze** — fire-and-forget รันใน Node.js process ถ้า server restart ไฟล์จะค้างที่ `processing`
    - Workaround: แก้ status เป็น `error` ใน Supabase แล้วกด Retry
    - แนวทางถาวร: ย้ายไปใช้ N8N workflow (trigger webhook แทน runAnalysis โดยตรง)
-2. **Cloudflare 524 Timeout** — LiteLLM proxy อยู่หลัง Cloudflare timeout 100s ไฟล์เสียงยาวอาจ timeout
-   - Workaround: ใช้ไฟล์ที่เล็กลง หรือ retry (server อาจไม่ยุ่งแล้ว)
-   - แนวทางถาวร: เพิ่ม timeout ใน Cloudflare dashboard หรือ bypass ผ่าน Netbird IP
+2. **Cloudflare Connection Drop** — LiteLLM proxy อยู่หลัง Cloudflare ซึ่งตัด connection จริงที่ ~60s ไฟล์ใหญ่ (>5MB) จะ fail ด้วย "Connection error" เสมอ
+   - Workaround: ใช้ `DEEPGRAM_API_KEY` (เรียกตรง ไม่ผ่าน Cloudflare) หรือใช้ไฟล์เล็กลง
+   - แนวทางถาวร: bypass ผ่าน Netbird IP หรือเพิ่ม timeout ใน Cloudflare dashboard
 3. **ไม่มี Auth** — ทุกคนที่เข้าถึง URL เห็นข้อมูลทั้งหมด (ดู `docs/auth-migration.md`)
 4. **หน้า /analyses ไม่ Real-time** — ต้อง refresh เองเพื่อเห็นสถานะใหม่
 
@@ -110,9 +124,17 @@ MINIO_SECRET_KEY
 MINIO_BUCKET_NAME
 LITELLM_BASE_URL
 LITELLM_API_KEY
-LITELLM_STT_MODEL
-LITELLM_ANALYSIS_MODEL
+LITELLM_STT_MODEL        # เช่น openai/gpt-4o-mini-transcribe หรือ openai/whisper-1
+LITELLM_ANALYSIS_MODEL   # เช่น claude-sonnet-4-6
+DEEPGRAM_API_KEY         # optional — ถ้าตั้งค่าจะใช้แทน LiteLLM สำหรับ STT
 ```
+
+### STT Provider Selection
+
+| `DEEPGRAM_API_KEY` | Provider ที่ใช้                     |
+| ------------------ | ----------------------------------- |
+| ตั้งค่าอยู่        | Deepgram Nova-3 (direct API, แนะนำ) |
+| ว่าง / ไม่มี       | LiteLLM → `LITELLM_STT_MODEL`       |
 
 ## Commands
 
@@ -142,3 +164,18 @@ main ← staging ← develop ← yongyut/feat-xxx
 - Conventional commit types: `feat`, `fix`, `refactor`, `docs`, `chore`
 - PR flow: feature branch → develop → staging → main
 - main = production, deploy อัตโนมัติผ่าน GitHub Actions + Coolify
+
+## Rules สำหรับ Claude — Actions ที่ต้องถามก่อนเสมอ
+
+ห้ามทำสิ่งต่อไปนี้โดยไม่ได้รับคำสั่งชัดเจน:
+
+| Action                                          | เหตุผล                          |
+| ----------------------------------------------- | ------------------------------- |
+| `git commit`                                    | อาจ commit ไฟล์ที่ยังไม่พร้อม   |
+| `git push`                                      | ส่งขึ้น remote กลับยาก          |
+| `git reset --hard` / `git checkout .`           | ลบ changes ที่ยังไม่ได้ save    |
+| `git merge` / `git rebase`                      | เปลี่ยน history อาจยุ่งยาก      |
+| รัน SQL `DROP` / `ALTER` / `DELETE` บน Supabase | แก้ไข production DB             |
+| แก้ไขไฟล์ `.env`                                | อาจกระทบ environment ที่รันอยู่ |
+| ลบไฟล์จาก MinIO โดยตรง                          | ข้อมูลหายถาวร                   |
+| ติดตั้ง package ใหม่ (`yarn add`)               | เปลี่ยน dependencies            |

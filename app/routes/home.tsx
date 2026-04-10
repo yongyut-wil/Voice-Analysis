@@ -1,7 +1,7 @@
 import type { Route } from "./+types/home";
 import { AudioUploader } from "~/components/audio-uploader";
 import { Link } from "react-router";
-import { AudioLines, BrainCircuit, ShieldAlert } from "lucide-react";
+import { AudioLines, BrainCircuit, FileText, ShieldAlert } from "lucide-react";
 
 export function meta(_: Route.MetaArgs) {
   return [
@@ -29,13 +29,22 @@ export default function Home() {
           </Link>
         </div>
 
-        <div className="mt-16 grid grid-cols-1 gap-6 text-center sm:grid-cols-3">
+        <div className="mt-16 grid grid-cols-1 gap-6 text-center sm:grid-cols-2 lg:grid-cols-4">
           <div className="rounded-xl border p-6">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-950">
               <AudioLines className="h-6 w-6 text-blue-600 dark:text-blue-400" />
             </div>
             <h3 className="mt-3 font-semibold">Speech-to-Text</h3>
-            <p className="text-muted-foreground mt-1 text-sm">ถอดข้อความจากเสียงด้วย Whisper AI</p>
+            <p className="text-muted-foreground mt-1 text-sm">ถอดข้อความจากไฟล์เสียงอัตโนมัติ</p>
+          </div>
+          <div className="rounded-xl border p-6">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-green-100 dark:bg-green-950">
+              <FileText className="h-6 w-6 text-green-600 dark:text-green-400" />
+            </div>
+            <h3 className="mt-3 font-semibold">สรุปบทสนทนา</h3>
+            <p className="text-muted-foreground mt-1 text-sm">
+              สรุปเรื่องที่คุย ผลลัพธ์ และจุดน่าสังเกต
+            </p>
           </div>
           <div className="rounded-xl border p-6">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-purple-100 dark:bg-purple-950">

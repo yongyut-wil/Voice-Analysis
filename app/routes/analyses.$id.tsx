@@ -227,11 +227,25 @@ export default function AnalysisDetail({ loaderData }: Route.ComponentProps) {
               </Card>
             </div>
 
+            {/* Summary */}
+            {analysis.summary && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">สรุปบทสนทนา</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm leading-relaxed">{analysis.summary}</p>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Transcription */}
             {analysis.transcription && (
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-base">คำพูดที่ถอดข้อความได้</CardTitle>
+                  <CardTitle className="text-muted-foreground text-sm font-medium">
+                    คำพูดที่ถอดข้อความได้
+                  </CardTitle>
                 </CardHeader>
                 <CardContent>
                   <textarea
@@ -246,9 +260,14 @@ export default function AnalysisDetail({ loaderData }: Route.ComponentProps) {
 
             {/* Meta */}
             <div className="text-muted-foreground flex flex-wrap gap-3 text-xs">
+              {analysis.stt_model_used && (
+                <Badge variant="outline" className="font-mono text-xs">
+                  STT: {analysis.stt_model_used}
+                </Badge>
+              )}
               {analysis.model_used && (
                 <Badge variant="outline" className="font-mono text-xs">
-                  {analysis.model_used}
+                  LLM: {analysis.model_used}
                 </Badge>
               )}
               {analysis.processing_time_ms && (

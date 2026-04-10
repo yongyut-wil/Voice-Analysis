@@ -1,8 +1,33 @@
+# OS
 .DS_Store
+Thumbs.db
+
+# Environment
 .env
+.env.local
+.env.*.local
+
+# Dependencies
 /node_modules/
 /package-lock.json
 
 # React Router
 /.react-router/
 /build/
+
+# TypeScript
+*.tsbuildinfo
+
+# Logs
+logs/
+*.log
+yarn-error.log*
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Editor personal settings (workspace rules ใน .windsurf/rules/ ควร commit)
+.windsurf/settings/
+.vscode/settings.json
+.idea/
