@@ -127,14 +127,27 @@ CREATE INDEX IF NOT EXISTS idx_analysis_audio_file_id ON analysis_results(audio_
 4. คลิก **Run** (หรือ `Ctrl+Enter`)
 5. ตรวจสอบว่า **Table Editor** เห็น `audio_files` และ `analysis_results`
 
-### 3.2 ตรวจสอบหลัง Run
+### 3.2 Run 002_add_summary_stt_model.sql
+
+1. คลิก **New query**
+2. วาง SQL จากไฟล์ `supabase/migrations/002_add_summary_stt_model.sql`:
+
+```sql
+ALTER TABLE analysis_results
+  ADD COLUMN IF NOT EXISTS summary       TEXT,
+  ADD COLUMN IF NOT EXISTS stt_model_used TEXT;
+```
+
+3. คลิก **Run**
+
+### 3.3 ตรวจสอบหลัง Run
 
 ไปที่ **Table Editor** ใน Supabase — ควรเห็น:
 
-| Table              | Columns                                                                                                                                                     |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `audio_files`      | id, filename, original_name, file_size, duration, mime_type, storage_url, status, error_message, created_at                                                 |
-| `analysis_results` | id, audio_file_id, transcription, emotion, emotion_score, satisfaction_score, illegal_detected, illegal_details, model_used, processing_time_ms, created_at |
+| Table              | Columns                                                                                                                                                                              |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `audio_files`      | id, filename, original_name, file_size, duration, mime_type, storage_url, status, error_message, created_at                                                                          |
+| `analysis_results` | id, audio_file_id, transcription, emotion, emotion_score, satisfaction_score, illegal_detected, illegal_details, summary, model_used, stt_model_used, processing_time_ms, created_at |
 
 ---
 
@@ -250,9 +263,10 @@ services:
 
 ## Migrations ถัดไป
 
-| ไฟล์               | เมื่อต้องการ                                           |
-| ------------------ | ------------------------------------------------------ |
-| `002_add_auth.sql` | เมื่อเพิ่ม Supabase Auth (ดู `docs/auth-migration.md`) |
+| ไฟล์                            | สถานะ   | เมื่อต้องการ                                           |
+| ------------------------------- | ------- | ------------------------------------------------------ |
+| `002_add_summary_stt_model.sql` | ✅ Done | เพิ่ม summary + stt_model_used ใน analysis_results     |
+| `003_add_auth.sql`              | Pending | เมื่อเพิ่ม Supabase Auth (ดู `docs/auth-migration.md`) |
 
 ---
 

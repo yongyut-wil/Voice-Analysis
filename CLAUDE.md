@@ -165,6 +165,24 @@ main ← staging ← develop ← yongyut/feat-xxx
 - PR flow: feature branch → develop → staging → main
 - main = production, deploy อัตโนมัติผ่าน GitHub Actions + Coolify
 
+## Rules สำหรับ Claude — Documentation Must Stay In Sync
+
+เมื่อมีการเปลี่ยนแปลงที่กระทบสิ่งต่อไปนี้ **ต้องอัพเดทเอกสารด้วยเสมอ** ในครั้งเดียวกัน:
+
+| การเปลี่ยนแปลง                                     | เอกสารที่ต้องอัพเดท                                                                                                       |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| เพิ่ม/ลบ/เปลี่ยน environment variable              | `.env.example` + `docs/migration.md`                                                                                      |
+| เพิ่ม/เปลี่ยน DB schema                            | สร้าง migration SQL ใน `supabase/migrations/` + `docs/migration.md` + `docs/metabase-dashboard.md` (ถ้ากระทบ SQL queries) |
+| เพิ่ม/ลบ route หรือ API endpoint                   | `CLAUDE.md` (โครงสร้าง)                                                                                                   |
+| เปลี่ยน AI pipeline (model, provider, return type) | `CLAUDE.md` (AI Pipeline section) + `docs/project-overview.md`                                                            |
+| เปลี่ยน architecture หรือเพิ่ม component สำคัญ     | `docs/project-overview.md`                                                                                                |
+| แก้ Known Limitation หรือพบ limitation ใหม่        | `CLAUDE.md` (Known Limitations section)                                                                                   |
+| เริ่ม implement auth                               | `docs/auth-migration.md` (อัพเดทจาก "แผน" เป็น "วิธีทำจริง")                                                              |
+
+**ไม่ต้องอัพเดทเอกสาร:** bug fix ภายใน, refactor โดยไม่เปลี่ยน interface, เปลี่ยน UI สีหรือ style
+
+---
+
 ## Rules สำหรับ Claude — Actions ที่ต้องถามก่อนเสมอ
 
 ห้ามทำสิ่งต่อไปนี้โดยไม่ได้รับคำสั่งชัดเจน:
