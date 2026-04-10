@@ -50,17 +50,9 @@ async function transcribeWithDeepgram(buffer: Buffer, filename: string): Promise
     const json = (await res.json()) as {
       results: { channels: { alternatives: { transcript: string }[] }[] };
     };
-    const result = removeRepetitions(
+    return removeRepetitions(
       cleanThaiText(json.results.channels[0]?.alternatives[0]?.transcript ?? "")
     );
-
-    logger.info("stt:done", {
-      provider: "deepgram",
-      model,
-      chars: result.length,
-      elapsed_ms: Date.now() - t0,
-    });
-    return result;
   } finally {
     clearInterval(heartbeat);
   }
@@ -92,15 +84,7 @@ async function transcribeWithLiteLLM(buffer: Buffer, filename: string): Promise<
 
     const raw =
       typeof transcription === "string" ? transcription : (transcription as { text: string }).text;
-    const result = removeRepetitions(cleanThaiText(raw));
-
-    logger.info("stt:done", {
-      provider: "litellm",
-      model,
-      chars: result.length,
-      elapsed_ms: Date.now() - t0,
-    });
-    return result;
+    return removeRepetitions(cleanThaiText(raw));
   } finally {
     clearInterval(heartbeat);
   }
@@ -176,7 +160,6 @@ export async function analyzeTranscription(transcription: string): Promise<Analy
   const model = process.env.LITELLM_ANALYSIS_MODEL ?? "claude-3-5-sonnet-20241022";
 
   logger.info("llm:start", { model, input_chars: transcription.length });
-  const t0 = Date.now();
 
   const prompt = ANALYSIS_PROMPT.replace("{TRANSCRIPTION}", transcription);
 
@@ -188,18 +171,5 @@ export async function analyzeTranscription(transcription: string): Promise<Analy
   });
 
   const raw = response.choices[0]?.message?.content ?? "";
-  logger.info("llm:raw", { raw: raw.slice(0, 200) });
-
-  const result = parseAnalysisResponse(raw);
-
-  logger.info("llm:done", {
-    model,
-    emotion: result.emotion,
-    emotion_score: result.emotion_score,
-    satisfaction_score: result.satisfaction_score,
-    illegal_detected: result.illegal_detected,
-    elapsed_ms: Date.now() - t0,
-  });
-
-  return result;
+  return parseAnalysisResponse(raw);
 }

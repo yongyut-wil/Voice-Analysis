@@ -24,8 +24,6 @@ export async function action({ request }: Route.ActionArgs) {
 
   await updateAudioFileStatus(audioFileId, "processing");
 
-  logger.info("analyze:queued", { audioFileId, name: audioFile.original_name });
-
   runAnalysis(audioFileId, audioFile.filename, audioFile.original_name).catch(async (err) => {
     const message = cleanErrorMessage(extractErrorMessage(err));
     logger.error("analyze:failed", { audioFileId, error: message });

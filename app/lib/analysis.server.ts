@@ -15,8 +15,6 @@ export async function runAnalysis(
   logger.info("analysis:start", { audioFileId, filename: originalName });
 
   const buffer = await downloadAudio(filename);
-  logger.info("analysis:downloaded", { audioFileId, bytes: buffer.length });
-
   const { transcription, sttModel } = await transcribeAudio(buffer, originalName);
   logger.info("analysis:transcribed", {
     audioFileId,
@@ -34,11 +32,10 @@ export async function runAnalysis(
     emotion_score: analysisOutput.emotion_score,
     satisfaction: analysisOutput.satisfaction_score,
     illegal: analysisOutput.illegal_detected,
-    illegal_details: analysisOutput.illegal_details ?? undefined,
+    ...(analysisOutput.illegal_details && { illegal_details: analysisOutput.illegal_details }),
     elapsed_ms: processingTime,
   });
 
-  const t0save = Date.now();
   await createAnalysisResult({
     audio_file_id: audioFileId,
     transcription,
@@ -53,16 +50,12 @@ export async function runAnalysis(
     processing_time_ms: processingTime,
   });
 
-  logger.info("analysis:saved", { audioFileId, save_ms: Date.now() - t0save });
-
   await updateAudioFileStatus(audioFileId, "done");
   logger.info("analysis:done", { audioFileId, total_ms: processingTime });
 
   // ลบไฟล์เสียงออกจาก MinIO หลัง analyze เสร็จ — ไม่จำเป็นต้องเก็บไว้อีกต่อไป
   deleteAudio(filename)
-    .then(() => {
-      logger.info("analysis:audio_deleted", { audioFileId, filename });
-    })
+    .then(() => {})
     .catch((err: unknown) => {
       logger.warn("analysis:audio_delete_failed", {
         audioFileId,
