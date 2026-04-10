@@ -4,6 +4,7 @@ import {
   updateAudioFileStatus,
   deleteAnalysisResultByFileId,
 } from "~/lib/supabase.server";
+import { audioExists } from "~/lib/minio.server";
 import { runAnalysis } from "~/lib/analysis.server";
 import { cleanErrorMessage, extractErrorMessage } from "~/lib/error-utils";
 import { logger } from "~/lib/logger";
@@ -22,6 +23,14 @@ export async function action({ request, params }: Route.ActionArgs) {
 
   if (audioFile.status === "processing") {
     return data({ error: "กำลังวิเคราะห์อยู่แล้ว" }, { status: 409 });
+  }
+
+  const exists = await audioExists(audioFile.filename);
+  if (!exists) {
+    return data(
+      { error: "ไฟล์เสียงต้นฉบับถูกลบไปแล้ว ไม่สามารถวิเคราะห์ใหม่ได้ กรุณาอัพโหลดไฟล์อีกครั้ง" },
+      { status: 422 }
+    );
   }
 
   // ลบ analysis_results เก่า (ถ้ามี) แล้วเริ่มใหม่

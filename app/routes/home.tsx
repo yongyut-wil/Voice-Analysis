@@ -1,7 +1,11 @@
 import type { Route } from "./+types/home";
-import { AudioUploader } from "~/components/audio-uploader";
+import { lazy, Suspense } from "react";
 import { Link } from "react-router";
-import { AudioLines, BrainCircuit, FileText, ShieldAlert } from "lucide-react";
+import { AudioLines, BrainCircuit, FileText, ShieldAlert, Loader2 } from "lucide-react";
+
+const AudioUploader = lazy(() =>
+  import("~/components/audio-uploader").then((m) => ({ default: m.AudioUploader }))
+);
 
 export function meta(_: Route.MetaArgs) {
   return [
@@ -21,7 +25,15 @@ export default function Home() {
           </p>
         </div>
 
-        <AudioUploader />
+        <Suspense
+          fallback={
+            <div className="mx-auto flex w-full max-w-xl items-center justify-center py-24">
+              <Loader2 className="text-muted-foreground h-8 w-8 animate-spin" />
+            </div>
+          }
+        >
+          <AudioUploader />
+        </Suspense>
 
         <div className="mt-8 text-center">
           <Link to="/analyses" className="text-primary text-sm underline-offset-4 hover:underline">

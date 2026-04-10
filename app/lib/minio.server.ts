@@ -63,6 +63,17 @@ export async function deleteAudio(filename: string): Promise<void> {
   await client.removeObject(bucket, filename);
 }
 
+export async function audioExists(filename: string): Promise<boolean> {
+  const client = getMinioClient();
+  const bucket = getBucketName();
+  try {
+    await client.statObject(bucket, filename);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function downloadAudio(filename: string): Promise<Buffer> {
   const client = getMinioClient();
   const bucket = getBucketName();

@@ -10,13 +10,15 @@ import {
 import type { Route } from "./+types/root";
 import "./app.css";
 
+const FONT_URL =
+  "https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;600&display=swap";
+
 export const links: Route.LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
   { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
-  {
-    rel: "stylesheet",
-    href: "https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;600&display=swap",
-  },
+  // preload hint ให้ browser เริ่ม fetch CSS ก่อน parser เจอ — ลด blocking time
+  { rel: "preload", href: FONT_URL, as: "style" },
+  { rel: "stylesheet", href: FONT_URL },
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {
