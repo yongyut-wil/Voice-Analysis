@@ -132,9 +132,9 @@ export function AudioUploader() {
     <div className="mx-auto w-full max-w-xl space-y-4">
       <Card
         {...getRootProps()}
-        className={`cursor-pointer border-2 border-dashed transition-colors ${
+        className={`cursor-pointer border-2 border-dashed transition-all duration-200 ${
           isDragActive
-            ? "border-primary bg-primary/5"
+            ? "border-primary bg-primary/5 scale-[1.02]"
             : "border-muted-foreground/30 hover:border-primary/50"
         } ${isProcessing ? "cursor-not-allowed opacity-70" : ""}`}
       >

@@ -106,7 +106,7 @@ export default function Analyses({ loaderData }: Route.ComponentProps) {
                   return (
                     <TableRow
                       key={file.id}
-                      className="hover:bg-muted/50 cursor-pointer"
+                      className="hover:bg-muted/50 cursor-pointer transition-colors duration-150"
                       onClick={() => (window.location.href = `/analyses/${file.id}`)}
                     >
                       <TableCell className="max-w-[200px] truncate font-medium">
