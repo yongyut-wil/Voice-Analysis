@@ -16,8 +16,6 @@ const FONT_URL =
 export const links: Route.LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
   { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
-  // preload hint ให้ browser เริ่ม fetch CSS ก่อน parser เจอ — ลด blocking time
-  { rel: "preload", href: FONT_URL, as: "style" },
   { rel: "stylesheet", href: FONT_URL },
 ];
 
