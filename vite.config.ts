@@ -13,6 +13,9 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [tailwindcss(), reactRouter(), reactClickToComponent()],
+    server: {
+      allowedHosts: ["uncloak-dispense-bakeshop.ngrok-free.dev"],
+    },
     resolve: {
       tsconfigPaths: true,
     },
