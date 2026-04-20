@@ -1,14 +1,13 @@
 FROM node:20-alpine AS build-env
 COPY . /app
 WORKDIR /app
-RUN corepack enable && yarn install --frozen-lockfile
-RUN ls node_modules/.bin/ | grep -i react   # <-- เพิ่มบรรทัดนี้ชั่วคราว
-RUN ./node_modules/.bin/react-router build
+RUN corepack enable && HUSKY=0 yarn install --frozen-lockfile
+RUN yarn build
 
 FROM node:20-alpine AS production-dependencies-env
 COPY ./package.json yarn.lock /app/
 WORKDIR /app
-RUN corepack enable && yarn install --frozen-lockfile --production
+RUN corepack enable && HUSKY=0 yarn install --frozen-lockfile --production
 
 FROM node:20-alpine
 COPY ./package.json yarn.lock /app/
