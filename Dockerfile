@@ -1,18 +1,13 @@
-FROM node:20-alpine AS development-dependencies-env
+FROM node:20-alpine AS build-env
 COPY . /app
 WORKDIR /app
 RUN corepack enable && yarn install --frozen-lockfile
+RUN yarn build
 
 FROM node:20-alpine AS production-dependencies-env
 COPY ./package.json yarn.lock /app/
 WORKDIR /app
 RUN corepack enable && yarn install --frozen-lockfile --production
-
-FROM node:20-alpine AS build-env
-COPY . /app/
-COPY --from=development-dependencies-env /app/node_modules /app/node_modules
-WORKDIR /app
-RUN yarn build
 
 FROM node:20-alpine
 COPY ./package.json yarn.lock /app/
