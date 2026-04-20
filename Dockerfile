@@ -2,6 +2,7 @@ FROM node:20-alpine AS build-env
 COPY . /app
 WORKDIR /app
 RUN corepack enable && yarn install --frozen-lockfile
+RUN ls node_modules/.bin/ | grep -i react   # <-- เพิ่มบรรทัดนี้ชั่วคราว
 RUN ./node_modules/.bin/react-router build
 
 FROM node:20-alpine AS production-dependencies-env
