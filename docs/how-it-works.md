@@ -18,11 +18,11 @@ POST /api/upload  ──────► validate + save ────────
     │
     ▼
 POST /api/analyze ──────► set status=processing
-    │                     runAnalysis() ──────────────► MinIO (ดึงไฟล์กลับมา)
-    │◄── 202 ทันที         (รันใน background)           Deepgram / LiteLLM (STT)
+    │                     triggerAnalysis() ─────────► n8n webhook
+    │◄── 202 ทันที         (workflow ทำงานต่อ)          LiteLLM (STT)
     │                           │                      LiteLLM / Claude (Analysis)
     ▼                           │                      Supabase (บันทึกผล)
-poll /api/status ทุก 3s         │                      MinIO (ลบไฟล์)
+    poll /api/status ทุก 3s         │                      MinIO (ลบไฟล์)
     │◄── { status }  ◄──────────┘
     │
     ▼ (status = done)
@@ -90,7 +90,7 @@ Client ส่ง `audioFileId` มา → Server ทำ 2 อย่าง:
 
 ```
 1. UPDATE audio_files SET status = 'processing'  ← synchronous (รอ)
-2. runAnalysis(...)                               ← fire-and-forget (ไม่รอ)
+2. triggerAnalysis(...)                           ← ส่งเข้า n8n webhook (ไม่รอ)
 3. return 202 ทันที                               ← ตอบ client เลย
 ```
 
@@ -123,44 +123,42 @@ GET /api/status/:id → { status: "error", error: "..." } → แสดง error
 
 ---
 
-## ขั้นที่ 5 — runAnalysis() (Background)
+## ขั้นที่ 5 — n8n Voice Analysis Workflow
 
-**ไฟล์:** `app/lib/analysis.server.ts` → `app/lib/litellm.server.ts`
+**ไฟล์:** `app/lib/n8n.server.ts` → `n8n/workflows/00-voice-analysis-pipeline.json`
 
-นี่คือหัวใจของระบบ รันใน Node.js background โดยไม่บล็อก HTTP response
+n8n ทำหน้าที่เป็น orchestrator โดยเรียกกลับมายัง callback API ที่ React Router ให้บริการ ไม่ได้รัน STT หรือ save อันดับเองโดยตรง
 
-### 5.1 ดึงไฟล์จาก MinIO
+### 5.1 ดึง Presigned URL
 
-```
-MinIO → buffer (binary data อยู่ใน RAM)
-```
+n8n เรียก `GET /api/callback/audio-download-url` → React Router ตอบด้วย presigned URL สำหรับ MinIO
 
-ทำไมไม่ส่ง buffer ต่อจาก upload เลย? เพราะ upload และ analyze เป็น HTTP request คนละตัว — state ไม่สามารถส่งผ่านกันได้
+n8n ใช้ URL นี้ดาวน์โหลด audio โดยตรงจาก MinIO (ไม่ผ่าน app server)
 
-### 5.2 Speech-to-Text (STT)
+### 5.2 Speech-to-Text (STT) ผ่าน Callback
 
-ระบบเลือก provider อัตโนมัติจาก environment variable:
+n8n เรียก `POST /api/callback/transcribe-audio` พร้อม body:
 
-```
-มี DEEPGRAM_API_KEY?
-  ใช่ → Deepgram Nova-3 (เรียกตรง, ไม่ผ่าน Cloudflare, ดีกับภาษาไทย)
-  ไม่  → LiteLLM → Whisper / GPT-4o-mini-transcribe
+```json
+{ "filename": "a3f9b2c1.mp3", "originalName": "call-2024.mp3" }
 ```
 
-หลังได้ transcription ดิบจาก STT → ผ่าน post-processing 2 ขั้น:
+React Router ป๏บัติการทั้งหมดในกระบวนการ STT:
 
 ```
-raw text
-   ↓ cleanThaiText()       — ลบช่องว่างระหว่างตัวอักษรไทย
-                              เช่น "ส วั ส ดี" → "สวัสดี"
-   ↓ removeRepetitions()   — ลบวลีซ้ำที่เกิดจาก Whisper hallucination
-                              เช่น "โปรดติดตามตอนต่อไปโปรดติดตาม..." → "โปรดติดตามตอนต่อไป"
-   ↓ transcription พร้อมใช้
+downloadAudio(filename)     ← ดึง binary จาก MinIO
+   ↓ transcribeAudio(buffer, originalName)  ← LiteLLM STT
+       raw text
+          ↓ cleanThaiText()       — ลบช่องว่างระหว่างตัวอักษรไทย
+          ↓ removeRepetitions()   — ลบวลีซ้ำจาก STT hallucination
+          ↓ { transcription, sttModel }
 ```
 
-### 5.3 LLM Analysis
+Return `{ transcription, sttModel }` กลับไปให้ n8n
 
-ส่ง transcription ให้ Claude ผ่าน LiteLLM proxy พร้อม prompt ที่ขอ JSON กลับมา:
+### 5.3 LLM Analysis (ใน n8n)
+
+n8n ส่ง transcription ไปยัง LiteLLM proxy โดยตรง (ไม่ผ่าน callback API) พร้อม prompt ที่ขอ JSON กลับมา:
 
 ```json
 {
@@ -173,20 +171,23 @@ raw text
 }
 ```
 
-- `temperature: 0.1` — ต้องการผลที่สม่ำเสมอ ไม่ต้องการให้ LLM สร้างสรรค์
+- `temperature: 0.1` — ต้องการผลที่สม่ำเสมอ
 - `max_tokens: 1024` — summary อาจยาว ถ้าตั้งน้อยเกินจะถูกตัดกลางคัน
 
 ### 5.4 บันทึกผลและ Cleanup
 
+n8n เรียก callback ตามลำดับ:
+
 ```
-1. INSERT INTO analysis_results (...)      ← บันทึกผลทั้งหมด
-2. UPDATE audio_files SET status='done'    ← บอก client ว่าเสร็จแล้ว
-3. deleteAudio(filename) [fire-and-forget] ← ลบไฟล์จาก MinIO
+1. POST /api/callback/save-analysis    ← React Router บันทึกลง Supabase
+2. POST /api/callback/status           ← UPDATE status = 'done'
+3. POST /api/callback/delete-audio     ← ลบไฟล์จาก MinIO (fire-and-forget)
+4. POST /webhook/post-call-processing  ← n8n alerting workflow (fire-and-forget)
 ```
 
 ทำไมลบไฟล์? เพราะหลัง analyze เสร็จ ข้อมูลทั้งหมดอยู่ใน Supabase แล้ว ไม่จำเป็นต้องเก็บต้นฉบับ (ประหยัด storage)
 
-ทำไม `deleteAudio` เป็น fire-and-forget? เพราะถ้าลบไม่สำเร็จ ผลการวิเคราะห์ยังสมบูรณ์อยู่ ไม่ควรทำให้ status กลับเป็น error แค่เพราะ cleanup ล้มเหลว
+ถ้า `delete-audio` callback fail → ไพล์ค้างใน MinIO แต่ผลวิเคราะห์ยังสมบูรณ์อยู่ (ไม่เปลี่ยน status)
 
 ---
 
@@ -218,7 +219,7 @@ Route นี้มี loader ที่ดึงข้อมูลจาก Supab
 1. ตรวจว่า status ไม่ใช่ "processing" (ถ้ากำลังทำอยู่ห้าม retry ซ้ำ)
 2. DELETE FROM analysis_results WHERE audio_file_id = :id  ← ลบผลเก่า
 3. UPDATE status = 'processing'
-4. runAnalysis() ← เริ่มใหม่จาก MinIO
+4. triggerAnalysis() ← ยิงเข้า n8n workflow ใหม่
 ```
 
 > **ข้อควรระวัง:** ถ้าไฟล์เสียงถูกลบจาก MinIO ไปแล้ว (analyze เสร็จในรอบก่อนแล้ว) การ retry จะ fail เพราะหาไฟล์ไม่เจอ
@@ -227,11 +228,11 @@ Route นี้มี loader ที่ดึงข้อมูลจาก Supab
 
 ## Known Limitations ที่ควรรู้
 
-| ปัญหา                               | สาเหตุ                                                                        | Workaround                                          |
-| ----------------------------------- | ----------------------------------------------------------------------------- | --------------------------------------------------- |
-| Status ค้างที่ `processing` ตลอด    | Server restart ระหว่าง analyze — Node.js process ตายแต่ DB ยังเป็น processing | แก้ status เป็น `error` ใน Supabase แล้วกด Retry    |
-| STT fail กับไฟล์ใหญ่ (LiteLLM path) | Cloudflare ตัด connection ที่ ~60 วินาที                                      | ใช้ `DEEPGRAM_API_KEY` (เรียกตรงไม่ผ่าน Cloudflare) |
-| Retry ไม่ได้ผล                      | ไฟล์เสียงถูกลบจาก MinIO ไปแล้ว                                                | ต้องอัพโหลดใหม่                                     |
+| ปัญหา                               | สาเหตุ                                                        | Workaround                                       |
+| ----------------------------------- | ------------------------------------------------------------- | ------------------------------------------------ |
+| Status ค้างที่ `processing` ตลอด    | n8n workflow ไม่มี error callback/path ครบ หรือ workflow ค้าง | แก้ status เป็น `error` ใน Supabase แล้วกด Retry |
+| STT fail กับไฟล์ใหญ่ (LiteLLM path) | Cloudflare ตัด connection ที่ ~60 วินาที                      | ใช้ internal LiteLLM endpoint หรือไฟล์เล็กลง     |
+| Retry ไม่ได้ผล                      | ไฟล์เสียงถูกลบจาก MinIO ไปแล้ว                                | ต้องอัพโหลดใหม่                                  |
 
 ---
 
@@ -244,7 +245,7 @@ Route นี้มี loader ที่ดึงข้อมูลจาก Supab
 
 **ขั้นที่ 1 — หยุดลบไฟล์หลัง analyze**
 
-ใน `app/lib/analysis.server.ts` ลบหรือ comment บรรทัด `deleteAudio(...)` ออก:
+ใน n8n workflow หรือ route `app/routes/api/delete-audio.tsx` ให้หยุดเรียกขั้น `deleteAudio(...)` ออก:
 
 ```ts
 // ลบส่วนนี้ออก
@@ -304,13 +305,16 @@ upload   → pending
          → [server] upload MinIO + insert Supabase(pending)
 
 analyze  → processing
-         → [background] download MinIO
-                      → STT (Deepgram หรือ LiteLLM)
-                      → cleanThaiText + removeRepetitions
-                      → LLM analysis (Claude via LiteLLM)
-                      → insert analysis_results
-                      → update status = done
-                      → delete MinIO (fire-and-forget)
+         → [n8n] GET /api/callback/audio-download-url → presigned URL
+                → download audio (direct from MinIO)
+                → POST /api/callback/transcribe-audio
+                    → [app server] LiteLLM STT → cleanThaiText + removeRepetitions
+                    → return { transcription, sttModel }
+                → LLM analysis (n8n → LiteLLM → Claude)
+                → POST /api/callback/save-analysis → insert analysis_results
+                → POST /api/callback/status → update status = done
+                → POST /api/callback/delete-audio → delete MinIO (fire-forget)
+                → POST /webhook/post-call-processing → alerting workflow (fire-forget)
 
 poll     → done  → navigate /analyses/:id → แสดงผล
          → error → แสดง error + ปุ่ม Retry

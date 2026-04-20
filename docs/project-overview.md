@@ -26,7 +26,7 @@ TonghuaLab ต้องการระบบที่ช่วยตรวจส
 
 ```
 [User Interface]  ←→  [Business Logic]  ←→  [External Services]
-   React UI           React Router           Whisper (STT)
+   React UI           React Router           GPT-4o-mini-transcribe (STT)
    TailwindCSS        Server Actions         Claude (Analysis)
    shadcn/ui          Type Safety            MinIO (Storage)
                                              Supabase (Database)
@@ -68,7 +68,7 @@ audio_files          ← เก็บ metadata ของไฟล์ที่ up
     ↓ drag & drop / เลือกไฟล์
 อัพโหลด → MinIO
     ↓
-วิเคราะห์ → Whisper + Claude
+วิเคราะห์ → STT (GPT-4o-mini-transcribe) + Claude
     ↓
 หน้าผลลัพธ์ (/analyses/:id)
 
@@ -92,9 +92,11 @@ Voice Analysis/
 │   ├── lib/
 │   │   ├── supabase.server.ts  # Database operations (server only)
 │   │   ├── minio.server.ts     # File storage operations (server only)
-│   │   ├── litellm.server.ts   # AI (Whisper + Claude) (server only)
-│   │   ├── analysis.server.ts  # runAnalysis() shared logic (server only)
+│   │   ├── litellm.server.ts   # AI (STT + Claude) (server only)
+│   │   ├── n8n.server.ts       # triggerAnalysis() + n8n webhook integration
+│   │   ├── analysis.server.ts  # runAnalysis() — legacy in-process path (server only)
 │   │   ├── error-utils.ts      # cleanErrorMessage() (client + server)
+│   │   ├── logger.ts           # Structured logging (dev: colorized, prod: JSON)
 │   │   └── utils.ts            # ฟังก์ชันทั่วไป
 │   ├── routes/
 │   │   ├── home.tsx            # หน้าแรก
@@ -152,6 +154,7 @@ CREATE TABLE audio_files (
   status        TEXT NOT NULL DEFAULT 'pending'
                   CHECK (status IN ('pending', 'processing', 'done', 'error')),
   error_message TEXT,              -- รายละเอียดข้อผิดพลาด
+  n8n_execution_id TEXT,           -- n8n execution ID สำหรับ tracing (migration 003)
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -159,12 +162,14 @@ CREATE TABLE analysis_results (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   audio_file_id      UUID NOT NULL REFERENCES audio_files(id) ON DELETE CASCADE,
   transcription      TEXT,          -- ข้อความถอดจากเสียง
+  summary            TEXT,          -- สรุปบทสนทนา 2-3 ประโยค (migration 002)
   emotion            TEXT CHECK (emotion IN ('neutral', 'positive', 'negative')),
   emotion_score      FLOAT,         -- ความมั่นใจ 0.0–1.0
   satisfaction_score INT,           -- คะแนนความพึงพอใจ 0–100
   illegal_detected   BOOLEAN NOT NULL DEFAULT false,
   illegal_details    TEXT,          -- รายละเอียดหากพบเนื้อหาไม่เหมาะสม
   model_used         TEXT,          -- claude-sonnet-4-6, gpt-4o, ...
+  stt_model_used     TEXT,          -- gpt-4o-mini-transcribe หรือ model identifier อื่นที่ใช้จริง
   processing_time_ms INT,           -- เวลาประมวลผล (ms)
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -214,12 +219,12 @@ Client → POST /api/analyze { audioFileId }
               ↓
          อัพเดต status → 'processing'
               ↓
-         runAnalysis() — fire-and-forget (ไม่ await)
+         triggerAnalysis() — ยิงเข้า n8n webhook (ไม่ await)
               ↓
          return 202 { audioFileId, status: "processing" } ← ทันที
 
-         [background]
-         downloadAudio() → Whisper → Claude → saveResult()
+         [background ผ่าน n8n]
+         fetch audio → STT → Claude → callback กลับมา save result
          → อัพเดต status 'done' หรือ 'error'
 ```
 
@@ -242,7 +247,7 @@ Client → POST /api/retry/:id
               ↓
          updateStatus → 'processing'
               ↓
-         runAnalysis() — fire-and-forget (ไม่ await)
+         triggerAnalysis() — ยิงเข้า n8n webhook ใหม่ (ไม่ await)
               ↓
          return 202 { audioFileId, status: "processing" }
 ```
@@ -292,36 +297,19 @@ const url = await minioClient.presignedGetObject(bucket, filename, 3600);
 
 ### 6.2 Speech-to-Text (STT)
 
-ระบบเลือก STT provider อัตโนมัติตาม environment variable:
+ระบบใช้ LiteLLM STT model ผ่าน n8n workflow ตาม environment variable:
 
-| env var `DEEPGRAM_API_KEY` | Provider ที่ใช้              |
-| -------------------------- | ---------------------------- |
-| ตั้งค่าอยู่                | **Deepgram Nova-3** (แนะนำ)  |
-| ไม่ได้ตั้งค่า              | LiteLLM → Whisper (fallback) |
+| env var `LITELLM_STT_MODEL` | Provider ที่ใช้  |
+| --------------------------- | ---------------- |
+| ตั้งค่าเป็น model ใดก็ได้   | LiteLLM STT path |
 
-**Deepgram Nova-3 (แนะนำ):**
-
-เรียกผ่าน REST API โดยตรง ไม่ผ่าน LiteLLM proxy — หลีกเลี่ยง Cloudflare timeout:
+**LiteLLM STT:**
+เร็วกว่าทางเลือกเดิมบางตัว, รองรับภาษาไทยใน flow ปัจจุบัน และส่งผ่าน post-processing ก่อนบันทึกผล
 
 ```typescript
-const res = await fetch(
-  `https://api.deepgram.com/v1/listen?model=nova-3&language=th&smart_format=true`,
-  {
-    method: "POST",
-    headers: { Authorization: `Token ${apiKey}`, "Content-Type": contentType },
-    body: new Uint8Array(buffer),
-  }
-);
-```
-
-ข้อดี: เร็วกว่า Whisper, รองรับภาษาไทยได้ดีกว่า, ไม่มีปัญหา syllable-splitting
-
-**Whisper via LiteLLM (fallback):**
-
-```typescript
-const response = await openai.audio.transcriptions.create({
+await transcriptionModel.audio.transcriptions.create({
   file: new File([buffer], filename, { type: "audio/mpeg" }),
-  model: process.env.LITELLM_STT_MODEL, // openai/whisper-1
+  model: process.env.LITELLM_STT_MODEL, // เช่น gpt-4o-mini-transcribe
   language: "th",
   response_format: "text",
 });
@@ -329,7 +317,7 @@ const response = await openai.audio.transcriptions.create({
 
 **Thai Post-processing (`cleanThaiText`):**
 
-Whisper มีปัญหาแยก syllable ภาษาไทยด้วยช่องว่าง เช่น `การ จัด เย บ น ุ่ม` แทนที่จะเป็น `การจัดเย็บนุ่ม` — ทั้ง Deepgram และ LiteLLM path ผ่าน `cleanThaiText()` ก่อน return:
+STT model บางตัวมีปัญหาแยก syllable ภาษาไทยด้วยช่องว่าง เช่น `การ จัด เย บ น ุ่ม` แทนที่จะเป็น `การจัดเย็บนุ่ม` — pipeline ผ่าน `cleanThaiText()` ก่อน return:
 
 ```typescript
 function cleanThaiText(text: string): string {
@@ -595,10 +583,10 @@ CMD ["yarn", "start"]
 
 ### Server Restart ระหว่าง Analyze
 
-ปัจจุบัน fire-and-forget ทำงานใน Node.js process — ถ้า **server restart** ระหว่าง analyze ไฟล์จะค้างที่ `processing` ตลอดไป
+n8n เป็น orchestration หลักของงาน analyze แล้ว จึงลดความเสี่ยงจากการที่ React Router server restart ระหว่างงานยาวๆ ได้มากกว่าเดิม
 
-**Workaround:** แก้ status ด้วยมือใน Supabase เป็น `error` แล้วกด Retry ใน UI  
-**แนวทางแก้ถาวร:** ย้ายไปใช้ **N8N workflow** — app trigger webhook ไป N8N แทน `runAnalysis()` โดยตรง, N8N จัดการ retry และ error handling เอง
+**Workaround:** ใช้ Stuck Processing Monitor ใน n8n เพื่อตรวจจับไฟล์ที่ค้าง และแก้ status ด้วยมือใน Supabase เป็น `error` แล้วกด Retry ใน UI หากจำเป็น  
+**แนวทางแก้ถาวร:** ให้ workflow n8n ทุกตัวมี error callback/path ชัดเจน และรันบน infrastructure ที่แยกจาก web app
 
 ### Cloudflare 524 Timeout
 
@@ -640,14 +628,17 @@ MINIO_ACCESS_KEY=minioadmin
 MINIO_SECRET_KEY=minioadmin123
 MINIO_BUCKET_NAME=voice-analysis
 
-# LiteLLM (ใช้สำหรับ analysis เสมอ, STT ใช้เป็น fallback ถ้าไม่มี Deepgram)
+# LiteLLM
 LITELLM_BASE_URL=https://models.thcloud.ai/v1
 LITELLM_API_KEY=sk-...
-LITELLM_STT_MODEL=openai/whisper-1
+LITELLM_STT_MODEL=gpt-4o-mini-transcribe
 LITELLM_ANALYSIS_MODEL=claude-sonnet-4-6
 
-# Deepgram (optional — ถ้าตั้งค่าจะใช้แทน Whisper สำหรับ STT)
-DEEPGRAM_API_KEY=
+# n8n
+N8N_WEBHOOK_URL=https://n8n.thcloud.ai
+N8N_ANALYSIS_WEBHOOK_PATH=/webhook/voice-analysis
+N8N_CALLBACK_SECRET=your-shared-secret
+N8N_CALLBACK_BASE_URL=http://localhost:3000
 
 # App
 NODE_ENV=development
@@ -655,8 +646,8 @@ NODE_ENV=development
 
 **STT Provider Selection:**
 
-- `DEEPGRAM_API_KEY` มีค่า → ใช้ Deepgram Nova-3 (แนะนำ)
-- `DEEPGRAM_API_KEY` ว่างหรือไม่มี → ใช้ LiteLLM Whisper
+- ใช้ LiteLLM STT model จาก `LITELLM_STT_MODEL`
+- ควรเลือก model ที่เหมาะกับภาษาไทยและ latency ของ environment ที่ใช้งานจริง
 
 ---
 
@@ -671,37 +662,30 @@ NODE_ENV=development
 
 **Log events หลัก:**
 
-| Event                              | เมื่อไหร่                             |
-| ---------------------------------- | ------------------------------------- |
-| `stt:start`                        | เริ่มส่งไฟล์ไป STT provider           |
-| `stt:waiting`                      | heartbeat ทุก 15s ระหว่างรอ STT       |
-| `stt:done`                         | STT เสร็จ พร้อม elapsed_ms            |
-| `llm:start` / `llm:done`           | เริ่ม/เสร็จ LLM analysis              |
-| `llm:raw`                          | 200 chars แรกของ LLM response (debug) |
-| `analysis:start` → `analysis:done` | ทุก step ใน `runAnalysis()`           |
+| Event                                    | เมื่อไหร่                       |
+| ---------------------------------------- | ------------------------------- |
+| `n8n:trigger:start` / `n8n:trigger:done` | ก่อนและหลังยิง workflow webhook |
+| `stt:start` / `stt:done`                 | ขั้น STT ภายใน n8n workflow     |
+| `llm:start` / `llm:done`                 | ขั้นวิเคราะห์ภายใน n8n workflow |
+| `analysis-callback:*`                    | callback route บันทึกผล/สถานะ   |
+| `delete-audio:*`                         | ขั้น cleanup หลังวิเคราะห์เสร็จ |
 
-Heartbeat `setInterval` ทุก 15 วินาทีระหว่าง await STT — ช่วยให้รู้ว่า server ยังทำงานอยู่ ไม่ใช่ hung
+เน้น log แบบ request/callback และ webhook lifecycle มากกว่า heartbeat ใน web process
 
 ---
 
 ## 15. Dependencies หลัก
 
-| Package               | Version | ใช้ทำอะไร                                 |
-| --------------------- | ------- | ----------------------------------------- |
-| react-router          | 7.14.0  | SSR framework + routing + server actions  |
-| @supabase/supabase-js | 2.x     | PostgreSQL client                         |
-| minio                 | 8.x     | Object storage client                     |
-| openai                | 6.x     | LiteLLM/OpenAI API client (analysis only) |
-| react-dropzone        | 15.x    | Drag & drop file upload                   |
-| lucide-react          | 1.x     | Icons                                     |
-| tailwindcss           | 4.x     | Utility CSS                               |
-| shadcn                | 4.x     | UI component system                       |
-
-Deepgram ไม่ใช้ SDK — เรียกผ่าน built-in `fetch` โดยตรง ไม่ต้องติดตั้ง package เพิ่ม
-
----
-
----
+| Package               | Version | ใช้ทำอะไร                                  |
+| --------------------- | ------- | ------------------------------------------ |
+| react-router          | 7.14.0  | SSR framework + routing + server actions   |
+| @supabase/supabase-js | 2.x     | PostgreSQL client                          |
+| minio                 | 8.x     | Object storage client                      |
+| openai                | 6.x     | LiteLLM/OpenAI API client (STT + analysis) |
+| react-dropzone        | 15.x    | Drag & drop file upload                    |
+| lucide-react          | 1.x     | Icons                                      |
+| tailwindcss           | 4.x     | Utility CSS                                |
+| shadcn                | 4.x     | UI component system                        |
 
 ## 15. Git Workflow
 
@@ -735,4 +719,4 @@ main ← staging ← develop ← yongyut/feat-xxx
 
 ---
 
-_สร้างเมื่อ 2026-04-09 · อัพเดตล่าสุด 2026-04-10_
+_สร้างเมื่อ 2026-04-09 · อัพเดตล่าสุด 2026-04-16_

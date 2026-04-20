@@ -1,4 +1,5 @@
 import { data } from "react-router";
+import { cleanErrorMessage, extractErrorMessage } from "~/lib/error-utils";
 import { uploadAudio } from "~/lib/minio.server";
 import { createAudioFile } from "~/lib/supabase.server";
 import { logger } from "~/lib/logger";
@@ -13,6 +14,17 @@ const ALLOWED_TYPES = [
   "audio/webm",
   "audio/x-m4a",
 ];
+
+function getUploadErrorMessage(err: unknown): string {
+  console.log("getUploadErrorMessage", err);
+  const raw = extractErrorMessage(err);
+
+  if (raw.includes("ECONNREFUSED") && raw.includes("9000")) {
+    return "ไม่สามารถเชื่อมต่อระบบจัดเก็บไฟล์เสียงได้ กรุณาตรวจสอบ MinIO ว่ากำลังทำงานอยู่";
+  }
+
+  return cleanErrorMessage(raw);
+}
 
 export async function action({ request }: Route.ActionArgs) {
   if (request.method !== "POST") {
@@ -44,19 +56,25 @@ export async function action({ request }: Route.ActionArgs) {
 
   logger.info("upload:start", { name: file.name, size: file.size, mime: mimeType });
 
-  const { filename, storageUrl } = await uploadAudio(buffer, file.name, mimeType);
+  try {
+    const { filename, storageUrl } = await uploadAudio(buffer, file.name, mimeType);
 
-  const audioFile = await createAudioFile({
-    filename,
-    original_name: file.name,
-    file_size: file.size,
-    duration: null,
-    mime_type: mimeType,
-    storage_url: storageUrl,
-    status: "pending",
-  });
+    const audioFile = await createAudioFile({
+      filename,
+      original_name: file.name,
+      file_size: file.size,
+      duration: null,
+      mime_type: mimeType,
+      storage_url: storageUrl,
+      status: "pending",
+    });
 
-  logger.info("upload:done", { audioFileId: audioFile.id, filename, name: file.name });
+    logger.info("upload:done", { audioFileId: audioFile.id, filename, name: file.name });
 
-  return data({ audioFileId: audioFile.id, filename }, { status: 201 });
+    return data({ audioFileId: audioFile.id, filename }, { status: 201 });
+  } catch (err) {
+    const message = getUploadErrorMessage(err) || "อัพโหลดไฟล์ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง";
+    logger.error("upload:failed", { name: file.name, mime: mimeType, error: message });
+    return data({ error: message }, { status: 500 });
+  }
 }

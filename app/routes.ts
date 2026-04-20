@@ -8,5 +8,11 @@ export default [
   route("api/analyze", "routes/api/analyze.tsx"),
   route("api/retry/:id", "routes/api/retry.tsx"),
   route("api/status/:id", "routes/api/status.tsx"),
+  route("api/callback/status", "routes/api/callback.status.tsx"),
+  route("api/callback/audio-download-url", "routes/api/callback.audio-download-url.tsx"),
+  route("api/callback/transcribe-audio", "routes/api/callback.transcribe-audio.tsx"),
+  route("api/callback/save-analysis", "routes/api/callback.save-analysis.tsx"),
+  route("api/callback/delete-audio", "routes/api/callback.delete-audio.tsx"),
+  route("api/health", "routes/api/health.tsx"),
   route(".well-known/*", "routes/well-known.tsx"),
 ] satisfies RouteConfig;

@@ -10,7 +10,7 @@ Primary stack:
 - TypeScript strict mode
 - Supabase PostgreSQL for data
 - MinIO for audio storage
-- Deepgram Nova-3 or LiteLLM STT
+- LiteLLM STT orchestrated via n8n workflows
 - LiteLLM for analysis model calls
 - shadcn/ui + Tailwind CSS v4 + Lucide React for UI
 
@@ -60,8 +60,8 @@ For schema updates:
 
 - `transcribeAudio(buffer, filename)` should return both transcription text and the STT model identifier
 - `analyzeTranscription(text)` should return the structured analysis output including `summary`
-- Prefer Deepgram when `DEEPGRAM_API_KEY` is configured
-- LiteLLM STT is the fallback path
+- n8n is the primary orchestration layer for voice analysis
+- LiteLLM STT is the active speech-to-text path
 - Keep Thai text cleanup and repetition removal behavior intact unless intentionally changing the pipeline
 
 ## React Router Conventions

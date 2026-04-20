@@ -19,48 +19,9 @@ function getLiteLLMClient() {
   return new OpenAI({ baseURL, apiKey, timeout: 90_000, maxRetries: 0 });
 }
 
-async function transcribeWithDeepgram(buffer: Buffer, filename: string): Promise<string> {
-  const apiKey = process.env.DEEPGRAM_API_KEY!;
-  const model = "nova-3";
-  const ext = filename.split(".").pop()?.toLowerCase();
-  const contentType = ext === "mp3" ? "audio/mpeg" : ext === "wav" ? "audio/wav" : "audio/mp4";
-
-  logger.info("stt:start", { provider: "deepgram", model, filename, bytes: buffer.length });
-  const t0 = Date.now();
-
-  const heartbeat = setInterval(() => {
-    logger.warn("stt:waiting", { provider: "deepgram", elapsed_ms: Date.now() - t0 });
-  }, 15_000);
-
-  try {
-    const res = await fetch(
-      `https://api.deepgram.com/v1/listen?model=${model}&language=th&smart_format=true&punctuate=true`,
-      {
-        method: "POST",
-        headers: { Authorization: `Token ${apiKey}`, "Content-Type": contentType },
-        body: new Uint8Array(buffer),
-      }
-    );
-
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Deepgram error ${res.status}: ${text.slice(0, 200)}`);
-    }
-
-    const json = (await res.json()) as {
-      results: { channels: { alternatives: { transcript: string }[] }[] };
-    };
-    return removeRepetitions(
-      cleanThaiText(json.results.channels[0]?.alternatives[0]?.transcript ?? "")
-    );
-  } finally {
-    clearInterval(heartbeat);
-  }
-}
-
 async function transcribeWithLiteLLM(buffer: Buffer, filename: string): Promise<string> {
   const client = getLiteLLMClient();
-  const model = process.env.LITELLM_STT_MODEL ?? "whisper-1";
+  const model = process.env.LITELLM_STT_MODEL ?? "gpt-4o-mini-transcribe";
 
   logger.info("stt:start", { provider: "litellm", model, filename, bytes: buffer.length });
   const t0 = Date.now();
@@ -80,6 +41,8 @@ async function transcribeWithLiteLLM(buffer: Buffer, filename: string): Promise<
       model,
       language: "th",
       response_format: "text",
+      ...(model.includes("diarize") &&
+        ({ chunking_strategy: { type: "auto" } } as Record<string, unknown>)),
     });
 
     const raw =
@@ -94,12 +57,8 @@ export async function transcribeAudio(
   buffer: Buffer,
   filename: string
 ): Promise<{ transcription: string; sttModel: string }> {
-  if (process.env.DEEPGRAM_API_KEY) {
-    const transcription = await transcribeWithDeepgram(buffer, filename);
-    return { transcription, sttModel: "deepgram/nova-3" };
-  }
   const transcription = await transcribeWithLiteLLM(buffer, filename);
-  return { transcription, sttModel: process.env.LITELLM_STT_MODEL ?? "openai/whisper-1" };
+  return { transcription, sttModel: process.env.LITELLM_STT_MODEL ?? "gpt-4o-mini-transcribe" };
 }
 
 const ANALYSIS_PROMPT = `คุณคือผู้เชี่ยวชาญด้านการวิเคราะห์เสียงสนทนา วิเคราะห์ข้อความต่อไปนี้จากการถอดเสียง แล้วตอบเป็น JSON เท่านั้น ห้ามมีข้อความอื่น

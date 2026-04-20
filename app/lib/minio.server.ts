@@ -13,6 +13,21 @@ function getMinioClient() {
   return new Minio.Client({ endPoint: endpoint, port, useSSL, accessKey, secretKey });
 }
 
+function getStorageBaseUrl(): string {
+  const publicBaseUrl = process.env.MINIO_PUBLIC_BASE_URL?.trim();
+  if (publicBaseUrl) {
+    return publicBaseUrl.replace(/\/$/, "");
+  }
+
+  const endpoint = process.env.MINIO_ENDPOINT ?? "localhost";
+  const port = process.env.MINIO_PORT ?? "9000";
+  const useSSL = process.env.MINIO_USE_SSL === "true";
+  const protocol = useSSL ? "https" : "http";
+  const isDefaultPort = (useSSL && port === "443") || (!useSSL && port === "80");
+
+  return `${protocol}://${endpoint}${isDefaultPort ? "" : `:${port}`}`;
+}
+
 export function getBucketName(): string {
   return process.env.MINIO_BUCKET_NAME ?? "voice-analysis";
 }
@@ -42,11 +57,7 @@ export async function uploadAudio(
     "Content-Type": mimeType,
   });
 
-  const endpoint = process.env.MINIO_ENDPOINT ?? "localhost";
-  const port = process.env.MINIO_PORT ?? "9000";
-  const useSSL = process.env.MINIO_USE_SSL === "true";
-  const protocol = useSSL ? "https" : "http";
-  const storageUrl = `${protocol}://${endpoint}:${port}/${bucket}/${filename}`;
+  const storageUrl = `${getStorageBaseUrl()}/${bucket}/${filename}`;
 
   return { filename, storageUrl };
 }

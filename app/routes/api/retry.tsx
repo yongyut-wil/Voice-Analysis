@@ -5,7 +5,7 @@ import {
   deleteAnalysisResultByFileId,
 } from "~/lib/supabase.server";
 import { audioExists } from "~/lib/minio.server";
-import { runAnalysis } from "~/lib/analysis.server";
+import { triggerAnalysis } from "~/lib/n8n.server";
 import { cleanErrorMessage, extractErrorMessage } from "~/lib/error-utils";
 import { logger } from "~/lib/logger";
 import type { Route } from "./+types/retry";
@@ -39,7 +39,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 
   logger.info("retry:queued", { audioFileId: id, name: audioFile.original_name });
 
-  runAnalysis(id, audioFile.filename, audioFile.original_name).catch(async (err) => {
+  triggerAnalysis(id, audioFile.filename, audioFile.original_name).catch(async (err: unknown) => {
     const message = cleanErrorMessage(extractErrorMessage(err));
     logger.error("retry:failed", { audioFileId: id, error: message });
     await updateAudioFileStatus(id, "error", message);

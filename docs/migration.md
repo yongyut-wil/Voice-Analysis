@@ -53,12 +53,14 @@ MINIO_BUCKET_NAME=voice-analysis
 # ── LiteLLM (ใช้สำหรับ analysis เสมอ) ────────────
 LITELLM_BASE_URL=https://models.thcloud.ai/v1
 LITELLM_API_KEY=sk-...
-LITELLM_STT_MODEL=openai/whisper-1   # ใช้เป็น STT fallback ถ้าไม่มี Deepgram
+LITELLM_STT_MODEL=gpt-4o-mini-transcribe
 LITELLM_ANALYSIS_MODEL=claude-sonnet-4-6
 
-# ── Deepgram (optional — แนะนำสำหรับ Thai STT) ───
-# ถ้าตั้งค่าจะใช้แทน Whisper → เร็วกว่า, Thai ดีกว่า, ไม่ผ่าน Cloudflare
-DEEPGRAM_API_KEY=
+# ── n8n Integration (primary orchestration path) ─
+N8N_WEBHOOK_URL=https://n8n.thcloud.ai
+N8N_ANALYSIS_WEBHOOK_PATH=/webhook/voice-analysis
+N8N_CALLBACK_SECRET=your-shared-secret
+N8N_CALLBACK_BASE_URL=http://localhost:3000
 
 # ── App ───────────────────────────────────────────
 NODE_ENV=development
@@ -66,10 +68,9 @@ NODE_ENV=development
 
 ### STT Provider Selection
 
-| ตัวเลือก          | วิธีตั้งค่า                                    |
-| ----------------- | ---------------------------------------------- |
-| Deepgram Nova-3   | ตั้งค่า `DEEPGRAM_API_KEY=dg_...`              |
-| LiteLLM / Whisper | เว้นว่าง `DEEPGRAM_API_KEY=` (ใช้ LiteLLM แทน) |
+| ตัวเลือก    | วิธีตั้งค่า                                                                 |
+| ----------- | --------------------------------------------------------------------------- |
+| LiteLLM STT | ตั้งค่า `LITELLM_STT_MODEL=gpt-4o-mini-transcribe` หรือ model อื่นที่รองรับ |
 
 ### หา Supabase Keys
 
@@ -295,12 +296,12 @@ git push origin yongyut/feat-my-feature
 
 ## Troubleshooting
 
-| ปัญหา                                   | สาเหตุ                                    | วิธีแก้                                                                         |
-| --------------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------- |
-| `SUPABASE_URL is not defined`           | ไม่มีไฟล์ `.env`                          | `cp .env.example .env` แล้วกรอกค่า                                              |
-| `MinIO connection refused`              | Docker ไม่ได้รัน                          | `docker-compose up -d`                                                          |
-| `524 Timeout` จาก LiteLLM STT           | ไฟล์ใหญ่เกิน / Cloudflare timeout 100s    | ใช้ Deepgram (`DEEPGRAM_API_KEY`) — ไม่ผ่าน Cloudflare หรือลองไฟล์เล็กลง        |
-| Status ค้างที่ `processing`             | Server restart ระหว่าง analyze            | ไปที่ Supabase → แก้ status เป็น `error` แล้วกด Retry ใน UI                     |
-| Table ไม่มีใน Supabase                  | ยังไม่ได้ run migration                   | ทำขั้นตอนที่ 3                                                                  |
-| ESLint error pre-commit hook            | `eslint-plugin-react` ไม่รองรับ ESLint 10 | ตรวจสอบ `eslint.config.js` ว่าไม่ได้ใช้ `reactPlugin.configs.recommended`       |
-| Thai transcription ดูแปลกๆ แยก syllable | Whisper bug กับภาษาไทย                    | ปกติ `cleanThaiText()` แก้ให้อัตโนมัติ ถ้ายังมีปัญหาให้ลองเปลี่ยนไปใช้ Deepgram |
+| ปัญหา                                   | สาเหตุ                                    | วิธีแก้                                                                   |
+| --------------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------- |
+| `SUPABASE_URL is not defined`           | ไม่มีไฟล์ `.env`                          | `cp .env.example .env` แล้วกรอกค่า                                        |
+| `MinIO connection refused`              | Docker ไม่ได้รัน                          | `docker-compose up -d`                                                    |
+| `524 Timeout` จาก LiteLLM STT           | ไฟล์ใหญ่เกิน / Cloudflare timeout 100s    | ใช้ internal LiteLLM endpoint หรือทดลองไฟล์เล็กลง                         |
+| Status ค้างที่ `processing`             | n8n workflow ค้างหรือไม่มี error callback | ไปที่ Supabase → แก้ status เป็น `error` แล้วกด Retry ใน UI               |
+| Table ไม่มีใน Supabase                  | ยังไม่ได้ run migration                   | ทำขั้นตอนที่ 3                                                            |
+| ESLint error pre-commit hook            | `eslint-plugin-react` ไม่รองรับ ESLint 10 | ตรวจสอบ `eslint.config.js` ว่าไม่ได้ใช้ `reactPlugin.configs.recommended` |
+| Thai transcription ดูแปลกๆ แยก syllable | STT output กับภาษาไทยมีช่องว่างเกิน       | ปกติ `cleanThaiText()` แก้ให้อัตโนมัติ                                    |

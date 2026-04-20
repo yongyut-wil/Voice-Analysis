@@ -18,7 +18,7 @@ Applies to files under `app/lib/**`.
 - `supabase.server.ts`: database reads and writes
 - `minio.server.ts`: object storage operations
 - `litellm.server.ts`: STT and analysis model calls
-- `analysis.server.ts`: end-to-end analysis orchestration
+- `n8n.server.ts`: webhook trigger and orchestration handoff to n8n
 - `error-utils.ts`: shared error normalization
 - `logger.ts`: structured logging
 
@@ -32,5 +32,5 @@ Applies to files under `app/lib/**`.
 ## High-Risk Areas
 
 - Importing server modules into route components will break Vite builds.
-- Changes to STT response shapes must be propagated to `analysis.server.ts` and shared types.
+- Changes to STT response shapes must be propagated to `litellm.server.ts`, callback handlers, and shared types.
 - Changes to DB columns must stay synchronized with Supabase schema.

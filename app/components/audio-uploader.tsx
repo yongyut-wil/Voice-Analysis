@@ -18,6 +18,26 @@ const POLL_INTERVAL_MS = 3000;
 
 type UploadState = "idle" | "uploading" | "analyzing" | "done" | "error";
 
+async function readErrorMessage(response: Response, fallback: string): Promise<string> {
+  const contentType = response.headers.get("content-type") ?? "";
+
+  if (contentType.includes("application/json")) {
+    try {
+      const body = (await response.json()) as { error?: string; message?: string };
+      return body.error?.trim() || body.message?.trim() || fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  try {
+    const text = (await response.text()).trim();
+    return text ? text.slice(0, 200) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export function AudioUploader() {
   const navigate = useNavigate();
   const [state, setState] = useState<UploadState>("idle");
@@ -79,8 +99,9 @@ export function AudioUploader() {
 
         const uploadRes = await fetch("/api/upload", { method: "POST", body: formData });
         if (!uploadRes.ok) {
-          const err = (await uploadRes.json()) as { error: string };
-          throw new Error(err.error ?? "Upload failed");
+          throw new Error(
+            await readErrorMessage(uploadRes, "อัพโหลดไฟล์ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง")
+          );
         }
         const { audioFileId } = (await uploadRes.json()) as { audioFileId: string };
         setProgress(40);
@@ -94,15 +115,17 @@ export function AudioUploader() {
           body: JSON.stringify({ audioFileId }),
         });
         if (!analyzeRes.ok) {
-          const err = (await analyzeRes.json()) as { error: string };
-          throw new Error(err.error ?? "Analysis failed");
+          throw new Error(
+            await readErrorMessage(analyzeRes, "เริ่มการวิเคราะห์ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง")
+          );
         }
 
         // server return 202 ทันที — เริ่ม polling
         startPolling(audioFileId);
       } catch (err) {
         setState("error");
-        setError(err instanceof Error ? err.message : "เกิดข้อผิดพลาด กรุณาลองใหม่");
+        const message = err instanceof Error ? err.message.trim() : "";
+        setError(message || "เกิดข้อผิดพลาด กรุณาลองใหม่");
       }
     },
     [startPolling]
