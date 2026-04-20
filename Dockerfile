@@ -2,7 +2,7 @@ FROM node:20-alpine AS build-env
 COPY . /app
 WORKDIR /app
 RUN corepack enable && yarn install --frozen-lockfile
-RUN yarn build
+RUN ./node_modules/.bin/react-router build
 
 FROM node:20-alpine AS production-dependencies-env
 COPY ./package.json yarn.lock /app/
