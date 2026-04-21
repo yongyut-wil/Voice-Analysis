@@ -2,10 +2,28 @@
 
 ระบบวิเคราะห์คุณภาพบทสนทนาเสียงอัตโนมัติ — TonghuaLab Internal Tool
 
+## Features
+
+- **Audio Upload** — Drag-and-drop รองรับ MP3, WAV, M4A, OGG, WebM (สูงสุด 100 MB)
+- **Speech-to-Text** — ถอดเสียงอัตโนมัติผ่าน LiteLLM STT + Thai text cleanup pipeline
+- **Conversation Analysis** — สรุปบทสนทนา, วิเคราะห์อารมณ์ (positive/neutral/negative), คะแนนความพึงพอใจ (0–100), ตรวจจับเนื้อหาเสี่ยง
+- **Analysis History** — ดูประวัติผลวิเคราะห์ย้อนหลังทั้งหมด
+- **Result Detail** — หน้ารายละเอียดพร้อม summary, emotion badge, satisfaction score, illegal alert, transcription
+- **Retry** — ลองวิเคราะห์ใหม่เมื่อ error โดยไม่ต้องอัปโหลดใหม่
+- **Auto Cleanup** — ลบไฟล์เสียงจาก MinIO หลังวิเคราะห์เสร็จ
+
+## Pages
+
+| Route           | หน้าที่                        |
+| --------------- | ------------------------------ |
+| `/`             | อัปโหลดไฟล์เสียง (Dropzone)    |
+| `/analyses`     | ประวัติผลวิเคราะห์ทั้งหมด      |
+| `/analyses/:id` | รายละเอียดผลวิเคราะห์แต่ละไฟล์ |
+
 ## Tech Stack
 
 - **Framework**: React Router v7 (SSR, framework mode)
-- **Database**: Supabase (PostgreSQL)
+- **Database**: Supabase (PostgreSQL) — schema `voice_analysis`
 - **Storage**: MinIO (S3-compatible) — bucket `voice-analysis`
 - **AI (STT)**: LiteLLM → `LITELLM_STT_MODEL` (default: `gpt-4o-mini-transcribe`)
 - **AI (Analysis)**: LiteLLM proxy → `LITELLM_ANALYSIS_MODEL` (default: Claude Sonnet)
@@ -56,11 +74,11 @@ App runs at `http://localhost:5173`.
 
 Run migrations in Supabase SQL Editor in order:
 
-```
-supabase/migrations/001_initial.sql
-supabase/migrations/002_add_summary_stt_model.sql
-supabase/migrations/003_add_n8n_execution_id.sql
-```
+1. `supabase/migrations/001_initial.sql` — สร้าง schema `voice_analysis` และตาราง `audio_files`, `analysis_results`
+2. `supabase/migrations/002_add_summary_stt_model.sql` — เพิ่มคอลัมน์ `summary`, `stt_model_used`
+3. `supabase/migrations/003_add_n8n_execution_id.sql` — เพิ่มคอลัมน์ `n8n_execution_id`
+
+> **หมายเหตุ:** ตารางทั้งหมดอยู่ใน schema `voice_analysis` (ไม่ใช่ `public`) — app ส่ง `{ db: { schema: "voice_analysis" } }` ให้ Supabase client อัตโนมัติ
 
 ### n8n Workflows
 
@@ -97,7 +115,8 @@ Production uses Coolify + GitHub Actions for automated deployment from `main` br
 ## Documentation
 
 - `CLAUDE.md` — Conventions, routes structure, AI pipeline rules
-- `docs/architecture.md` — System architecture and data flow diagrams
+- `docs/prd.md` — Product Requirement Document
+- `docs/architecture.md` — System architecture and data flow (text-based)
+- `docs/diagrams.md` — Mermaid diagrams (detailed)
+- `docs/diagrams-simple.md` — Mermaid diagrams (simplified)
 - `docs/how-it-works.md` — Step-by-step walkthrough for new developers
-- `docs/auth-migration.md` — Plan for adding Supabase Auth
-- `docs/metabase-dashboard.md` — Dashboard SQL queries (ID 317)

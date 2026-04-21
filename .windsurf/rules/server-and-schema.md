@@ -21,4 +21,4 @@ globs: app/lib/**/*.ts,app/types/**/*.ts
 
 - Preserve the current fire-and-forget plus polling architecture unless the task explicitly requests an architectural change.
 - Keep the separation between transcription and downstream analysis clear in code.
-- Prefer Deepgram when configured, with LiteLLM STT as fallback.
+- Prefer the current n8n-first orchestration with LiteLLM as the active STT path.

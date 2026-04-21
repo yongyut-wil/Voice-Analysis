@@ -27,6 +27,7 @@ description: Use this when working on Voice Analysis project code, architecture,
 
 ## AI Pipeline
 
-- STT may use Deepgram directly or LiteLLM as fallback.
+- n8n is the primary orchestration layer for analysis jobs.
+- STT uses LiteLLM with the configured `LITELLM_STT_MODEL`.
 - Analysis output should stay aligned with the structured schema expected by the app and database.
 - Preserve Thai text cleanup and current analysis flow unless the task explicitly changes it.
