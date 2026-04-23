@@ -14,5 +14,7 @@ export default [
   route("api/callback/save-analysis", "routes/api/callback.save-analysis.tsx"),
   route("api/callback/delete-audio", "routes/api/callback.delete-audio.tsx"),
   route("api/health", "routes/api/health.tsx"),
+  route("api/search", "routes/api/search.tsx"),
+  route("api/agent", "routes/api/agent.tsx"),
   route(".well-known/*", "routes/well-known.tsx"),
 ] satisfies RouteConfig;

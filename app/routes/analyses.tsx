@@ -1,8 +1,10 @@
 import type { Route } from "./+types/analyses";
 import { Link } from "react-router";
-import { ArrowLeft, AlertTriangle } from "lucide-react";
+import { ArrowLeft, AlertTriangle, Search, MessageSquare } from "lucide-react";
 import { getAudioFiles } from "~/lib/supabase.server";
 import { EmotionBadge } from "~/components/emotion-badge";
+import { SemanticSearch } from "~/components/semantic-search";
+import { AnalyticsChat } from "~/components/analytics-chat";
 import {
   Table,
   TableBody,
@@ -12,6 +14,7 @@ import {
   TableRow,
 } from "~/components/ui/table";
 import { Badge } from "~/components/ui/badge";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";
 import type { Emotion } from "~/types/analysis";
 
 export function meta(_: Route.MetaArgs) {
@@ -20,7 +23,8 @@ export function meta(_: Route.MetaArgs) {
 
 export async function loader(_: Route.LoaderArgs) {
   const files = await getAudioFiles();
-  return { files };
+  const mindsdbEnabled = !!process.env.MINDSDB_HOST;
+  return { files, mindsdbEnabled };
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -51,7 +55,7 @@ function formatSize(bytes: number | null) {
 }
 
 export default function Analyses({ loaderData }: Route.ComponentProps) {
-  const { files } = loaderData;
+  const { files, mindsdbEnabled } = loaderData;
 
   return (
     <main className="bg-background min-h-screen">
@@ -75,6 +79,35 @@ export default function Analyses({ loaderData }: Route.ComponentProps) {
             + อัพโหลดไฟล์ใหม่
           </Link>
         </div>
+
+        {mindsdbEnabled && (
+          <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <Card>
+              <CardHeader className="border-b pb-3">
+                <CardTitle className="flex items-center gap-2 text-sm font-medium">
+                  <Search className="h-4 w-4" />
+                  ค้นหาเชิงความหมาย
+                </CardTitle>
+                <CardDescription>ค้นหาด้วยความหมาย ไม่ต้องรู้คำแน่ชัด</CardDescription>
+              </CardHeader>
+              <CardContent className="pt-4">
+                <SemanticSearch />
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="border-b pb-3">
+                <CardTitle className="flex items-center gap-2 text-sm font-medium">
+                  <MessageSquare className="h-4 w-4" />
+                  ถามข้อมูล
+                </CardTitle>
+                <CardDescription>ถามด้วยภาษาธรรมชาติ AI ตอบจากข้อมูลจริง</CardDescription>
+              </CardHeader>
+              <CardContent className="pt-4">
+                <AnalyticsChat />
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
         {files.length === 0 ? (
           <div className="py-24 text-center">

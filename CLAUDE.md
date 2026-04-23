@@ -33,12 +33,15 @@ app/
       save-analysis.tsx      # POST — n8n ส่งผลวิเคราะห์ → app บันทึกลง Supabase
       delete-audio.tsx       # POST — n8n สั่งลบไฟล์เสียงจาก MinIO
     api/health.tsx        # GET — health check (n8n + MinIO + Supabase)
+    api/search.tsx        # GET /api/search?q=... — semantic search ผ่าน MindsDB KB
+    api/agent.tsx         # POST /api/agent { question } — NL analytics ผ่าน MindsDB Agent
   lib/
     supabase.server.ts    # DB operations (server only)
     minio.server.ts       # File storage (server only)
     litellm.server.ts     # AI calls — STT + LLM analysis (server only)
     analysis.server.ts    # runAnalysis() — ไม่ใช้ใน n8n flow ปัจจุบัน (legacy reference)
     n8n.server.ts         # n8n integration — triggerAnalysis(), triggerPostCallProcessing(), validateCallbackSecret() (server only)
+    mindsdb.server.ts     # MindsDB integration — semanticSearch(), askAnalyticsAgent() (server only)
     error-utils.ts        # cleanErrorMessage(), extractErrorMessage() — ใช้ได้ทั้ง client และ server
     logger.ts             # Structured logging — ANSI color (dev) / JSON (production)
   components/
@@ -148,7 +151,11 @@ LITELLM_ANALYSIS_MODEL   # เช่น claude-sonnet-4-6
 N8N_WEBHOOK_URL          # n8n base URL เช่น http://localhost:5678
 N8N_ANALYSIS_WEBHOOK_PATH # webhook path เช่น /webhook/voice-analysis
 N8N_CALLBACK_SECRET      # shared secret สำหรับ authenticate callback requests
-N8N_CALLBACK_BASE_URL    # URL ที่ n8n ใช้เรียกกลับมา React app เช่น http://localhost:3000
+N8N_CALLBACK_BASE_URL    # URL ที่ n8น ใช้เรียกกลับมา React app เช่น http://localhost:3000
+
+# MindsDB Integration (optional — semantic search + analytics agent)
+MINDSDB_HOST             # MindsDB server URL เช่น http://localhost:47334
+MINDSDB_API_KEY          # ปล่อยว่างสำหรับ self-hosted, ใส่ key สำหรับ MindsDB Cloud
 ```
 
 ### STT Provider

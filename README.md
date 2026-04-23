@@ -11,6 +11,8 @@
 - **Result Detail** — หน้ารายละเอียดพร้อม summary, emotion badge, satisfaction score, illegal alert, transcription
 - **Retry** — ลองวิเคราะห์ใหม่เมื่อ error โดยไม่ต้องอัปโหลดใหม่
 - **Auto Cleanup** — ลบไฟล์เสียงจาก MinIO หลังวิเคราะห์เสร็จ
+- **Semantic Search** — ค้นหาบทสนทนาด้วยความหมาย ไม่ใช่ keyword ตรง
+- **Analytics Chat** — ถามคำถามภาษาธรรมชาติ เช่น "สายที่ negative วันนี้มีกี่สาย?"
 
 ## Pages
 
@@ -28,6 +30,7 @@
 - **AI (STT)**: LiteLLM → `LITELLM_STT_MODEL` (default: `gpt-4o-mini-transcribe`)
 - **AI (Analysis)**: LiteLLM proxy → `LITELLM_ANALYSIS_MODEL` (default: Claude Sonnet)
 - **Automation**: n8n — analysis pipeline orchestration
+- **Analytics**: MindsDB + pgvector (Supabase) — semantic search + NL analytics agent
 - **UI**: shadcn/ui + TailwindCSS v4 + Lucide React
 
 ## Getting Started
