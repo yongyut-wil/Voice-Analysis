@@ -31,3 +31,6 @@ coverage/
 .windsurf/settings/
 .vscode/settings.json
 .idea/
+
+# #workshop
+# docs/workshop/
