@@ -18,5 +18,25 @@ services:
       timeout: 5s
       retries: 3
 
+  mindsdb:
+    image: mindsdb/mindsdb:latest
+    container_name: voice-analysis-mindsdb
+    ports:
+      - "47334:47334"   # HTTP API + GUI
+      - "47335:47335"   # MySQL protocol
+      - "47336:47336"   # PostgreSQL protocol
+    volumes:
+      - mindsdb_data:/root/mindsdb_storage
+    environment:
+      MINDSDB_STORAGE_DIR: /root/mindsdb_storage
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:47334/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
 volumes:
   minio-data:
+  mindsdb_data:

@@ -1,0 +1,67 @@
+services:
+  voice-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      # Supabase - Required
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      
+      # MinIO - Required  
+      - MINIO_ENDPOINT=${MINIO_ENDPOINT:-minio}
+      - MINIO_PORT=${MINIO_PORT:-9000}
+      - MINIO_USE_SSL=${MINIO_USE_SSL:-false}
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      - MINIO_PUBLIC_BASE_URL=${MINIO_PUBLIC_BASE_URL}
+      - MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME:-voice-analysis}
+      
+      # LiteLLM - Required for AI analysis
+      - LITELLM_BASE_URL=${LITELLM_BASE_URL}
+      - LITELLM_API_KEY=${LITELLM_API_KEY}
+      - LITELLM_STT_MODEL=${LITELLM_STT_MODEL:-gpt-4o-mini-transcribe}
+      - LITELLM_ANALYSIS_MODEL=${LITELLM_ANALYSIS_MODEL:-claude-3-5-sonnet-20241022}
+      
+      # n8n - Required for workflow orchestration
+      - N8N_WEBHOOK_URL=${N8N_WEBHOOK_URL}
+      - N8N_ANALYSIS_WEBHOOK_PATH=${N8N_ANALYSIS_WEBHOOK_PATH:-/webhook/voice-analysis}
+      - N8N_CALLBACK_BASE_URL=${N8N_CALLBACK_BASE_URL}
+      - N8N_CALLBACK_SECRET=${N8N_CALLBACK_SECRET}
+      
+      # MindsDB - Optional (ถ้าใช้ MindsDB ใน compose)
+      - MINDSDB_HOST=${MINDSDB_HOST:-http://mindsdb:47334}
+      - MINDSDB_API_KEY=${MINDSDB_API_KEY:-}
+      
+      - NODE_ENV=production
+    depends_on:
+      - mindsdb
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    
+  mindsdb:
+    image: mindsdb/mindsdb:latest
+    ports:
+      - "47334:47334"   # HTTP API + GUI (Coolify จะ manage domain ให้)
+    environment:
+      MINDSDB_STORAGE_DIR: /root/mindsdb_storage
+      # ถ้าต้องการให้ MindsDB ใช้ LiteLLM ผ่าน env
+      OPENAI_API_KEY: ${LITELLM_API_KEY:-}
+      OPENAI_API_BASE: ${LITELLM_BASE_URL:-}
+    volumes:
+      - mindsdb_data:/root/mindsdb_storage
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:47334/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+volumes:
+  mindsdb_data:
