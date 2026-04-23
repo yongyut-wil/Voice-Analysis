@@ -7,6 +7,7 @@ Thumbs.db
 .env.local
 .env.*.local
 .env.workshop
+.env.sit
 
 # Dependencies
 /node_modules/
