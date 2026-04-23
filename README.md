@@ -120,6 +120,12 @@ Production uses Coolify + GitHub Actions for automated deployment from `main` br
 - `CLAUDE.md` — Conventions, routes structure, AI pipeline rules
 - `docs/prd.md` — Product Requirement Document
 - `docs/architecture.md` — System architecture and data flow (text-based)
-- `docs/diagrams.md` — Mermaid diagrams (detailed)
-- `docs/diagrams-simple.md` — Mermaid diagrams (simplified)
 - `docs/how-it-works.md` — Step-by-step walkthrough for new developers
+- `docs/demo-session.md` — Demo script และ architecture overview
+- `docs/mindsdb-integration.md` — MindsDB setup guide (KB + Agent + Forecasting)
+- `docs/mindsdb-testing.md` — Checklist ทดสอบ MindsDB หลัง reset หรือ deploy
+- `docs/reset-data.md` — วิธีล้างข้อมูลทั้งหมด (Supabase + MinIO + MindsDB KB)
+- `docs/deploy-coolify.md` — Production deployment guide (Coolify + Docker)
+- `docs/auth-migration.md` — Plan for adding Supabase Auth
+- `docs/metabase-dashboard.md` — Dashboard SQL queries (ID 317)
+- `docs/workshop/` — Workshop: MindsDB + GenAI Toolbox + PostgreSQL/Supabase
