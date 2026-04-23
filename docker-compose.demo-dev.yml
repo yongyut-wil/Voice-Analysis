@@ -34,6 +34,8 @@ services:
       - MINDSDB_API_KEY=${MINDSDB_API_KEY:-}
       
       - NODE_ENV=production
+    ports:
+      - "3000:3000"   # ให้ Coolify สามารถ route มาที่ app ได้
     depends_on:
       - mindsdb
     healthcheck:
