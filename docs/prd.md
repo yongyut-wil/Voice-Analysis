@@ -40,7 +40,9 @@
 - ลบไฟล์เสียงจาก MinIO หลังวิเคราะห์เสร็จ (fire-and-forget)
 - n8n callback endpoints สำหรับ orchestration (authenticated with `X-N8N-Secret`)
 - Structured logging สำหรับ server-side operations
-- n8n monitoring workflows (stuck-processing monitor, daily summary report, quality gate, post-call alerting)
+- n8n monitoring workflows (stuck-processing monitor, quality gate)
+- **Semantic Search** (`GET /api/search?q=...`) — ค้นหาบทสนทนาด้วยความหมาย ผ่าน MindsDB Knowledge Base + pgvector
+- **Analytics Chat** (`POST /api/agent`) — ถามคำถามภาษาธรรมชาติแล้วได้คำตอบจาก MindsDB Analytics Agent
 
 **2.2 Out-Scope (ฟีเจอร์ที่ ไม่รวม ในเฟส MVP):**
 
@@ -271,14 +273,15 @@ pending → processing → done
 
 ### ภาคผนวก: Tech Stack Reference
 
-| ส่วน           | เทคโนโลยี                                 | หน้าที่                                  |
-| -------------- | ----------------------------------------- | ---------------------------------------- |
-| Framework      | React Router v7 (SSR, framework mode)     | SSR + API routes + loader/action         |
-| Database       | Supabase (PostgreSQL)                     | เก็บ metadata + ผลวิเคราะห์              |
-| Object Storage | MinIO (S3-compatible)                     | เก็บไฟล์เสียงชั่วคราว                    |
-| AI (STT)       | LiteLLM → `gpt-4o-mini-transcribe`        | ถอดเสียงเป็นข้อความ                      |
-| AI (Analysis)  | LiteLLM proxy → Claude Sonnet             | วิเคราะห์อารมณ์/คะแนน/เนื้อหาเสี่ยง/สรุป |
-| Orchestration  | n8n                                       | Workflow engine สำหรับ analysis pipeline |
-| UI             | shadcn/ui + TailwindCSS v4 + Lucide React | Component + styling + icons              |
-| Language       | TypeScript strict mode                    | Type safety                              |
-| Deployment     | Docker (multi-stage) + Coolify            | Production hosting                       |
+| ส่วน           | เทคโนโลยี                                 | หน้าที่                                           |
+| -------------- | ----------------------------------------- | ------------------------------------------------- |
+| Framework      | React Router v7 (SSR, framework mode)     | SSR + API routes + loader/action                  |
+| Database       | Supabase (PostgreSQL)                     | เก็บ metadata + ผลวิเคราะห์                       |
+| Object Storage | MinIO (S3-compatible)                     | เก็บไฟล์เสียงชั่วคราว                             |
+| AI (STT)       | LiteLLM → `gpt-4o-mini-transcribe`        | ถอดเสียงเป็นข้อความ                               |
+| AI (Analysis)  | LiteLLM proxy → Claude Sonnet             | วิเคราะห์อารมณ์/คะแนน/เนื้อหาเสี่ยง/สรุป          |
+| Orchestration  | n8n                                       | Workflow engine สำหรับ analysis pipeline          |
+| Analytics      | MindsDB + pgvector (Supabase)             | Semantic search (KB) + Analytics Agent (NL → SQL) |
+| UI             | shadcn/ui + TailwindCSS v4 + Lucide React | Component + styling + icons                       |
+| Language       | TypeScript strict mode                    | Type safety                                       |
+| Deployment     | Docker (multi-stage) + Coolify            | Production hosting                                |
