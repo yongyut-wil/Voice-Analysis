@@ -1,7 +1,7 @@
 -- Voice Analysis: Initial Schema
 -- Migration: 001_initial.sql
 
-CREATE TABLE IF NOT EXISTS audio_files (
+CREATE TABLE IF NOT EXISTS voice_analysis.audio_files (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   filename      TEXT NOT NULL,
   original_name TEXT NOT NULL,
@@ -15,9 +15,9 @@ CREATE TABLE IF NOT EXISTS audio_files (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS analysis_results (
+CREATE TABLE IF NOT EXISTS voice_analysis.analysis_results (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  audio_file_id      UUID NOT NULL REFERENCES audio_files(id) ON DELETE CASCADE,
+  audio_file_id      UUID NOT NULL REFERENCES voice_analysis.audio_files(id) ON DELETE CASCADE,
   transcription      TEXT,
   emotion            TEXT CHECK (emotion IN ('neutral', 'positive', 'negative')),
   emotion_score      FLOAT CHECK (emotion_score BETWEEN 0 AND 1),
@@ -29,6 +29,6 @@ CREATE TABLE IF NOT EXISTS analysis_results (
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_audio_files_status     ON audio_files(status);
-CREATE INDEX IF NOT EXISTS idx_audio_files_created_at ON audio_files(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_analysis_audio_file_id ON analysis_results(audio_file_id);
+CREATE INDEX IF NOT EXISTS idx_audio_files_status     ON voice_analysis.audio_files(status);
+CREATE INDEX IF NOT EXISTS idx_audio_files_created_at ON voice_analysis.audio_files(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_analysis_audio_file_id ON voice_analysis.analysis_results(audio_file_id);
