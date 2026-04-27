@@ -10,8 +10,8 @@ Primary stack:
 - TypeScript strict mode
 - Supabase PostgreSQL for data
 - MinIO for audio storage
-- LiteLLM STT orchestrated via n8n workflows
-- LiteLLM for analysis model calls
+- LiteLLM STT and analysis run directly in server-side Node.js flow by default
+- n8n remains available as an optional orchestration / callback integration path
 - shadcn/ui + Tailwind CSS v4 + Lucide React for UI
 
 ## Source of Truth
@@ -20,8 +20,9 @@ When instructions conflict, prefer this order:
 
 1. Existing code in the touched directory
 2. `CLAUDE.md`
-3. `docs/project-overview.md`
-4. Generic framework defaults
+3. `docs/status.md` (for current feature status)
+4. `docs/project-overview.md`
+5. Generic framework defaults
 
 Do not follow the default `README.md` commands if they conflict with the project conventions. This project uses `yarn`, not `npm`.
 
@@ -35,6 +36,7 @@ Do not follow the default `README.md` commands if they conflict with the project
 - Prefer existing shadcn/ui primitives from `~/components/ui/` before introducing new base components.
 - Use Lucide React for icons.
 - Do not hardcode visual colors if matching CSS variables already exist.
+- Reuse existing components like `semantic-search.tsx` before building new search UI.
 
 ## Database and Data Rules
 
@@ -60,9 +62,18 @@ For schema updates:
 
 - `transcribeAudio(buffer, filename)` should return both transcription text and the STT model identifier
 - `analyzeTranscription(text)` should return the structured analysis output including `summary`
-- n8n is the primary orchestration layer for voice analysis
+- `runAnalysis(...)` in `app/lib/analysis.server.ts` is the direct orchestration path used when `SKIP_N8N=true`
+- `n8n` integration is optional and should be treated as a fallback / alternate path when `SKIP_N8N=false`
 - LiteLLM STT is the active speech-to-text path
 - Keep Thai text cleanup and repetition removal behavior intact unless intentionally changing the pipeline
+
+## MindsDB Analytics
+
+- MindsDB adds semantic search and NL analytics on top of Supabase — it does not replace n8n or LiteLLM
+- `app/lib/mindsdb.server.ts` exposes `semanticSearch()` and `askAnalyticsAgent()`
+- Semantic search deduplicates by `audio_file_id` — MindsDB splits transcriptions into chunks, always return one result per audio file
+- Both analytics features are conditional on `MINDSDB_HOST` being set; return 503 otherwise
+- GenAI Toolbox integration is planned (`tools.workshop.yaml` exists) but not yet in production
 
 ## React Router Conventions
 

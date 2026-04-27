@@ -9,7 +9,7 @@
 - **Storage**: MinIO (S3-compatible) — bucket `voice-analysis`
 - **AI (STT)**: LiteLLM → `gpt-4o-mini-transcribe` หรือ model ที่กำหนดใน `LITELLM_STT_MODEL`
 - **AI (Analysis)**: LiteLLM proxy → Claude Sonnet
-- **Automation**: n8n — workflow engine สำหรับ analysis pipeline + alerting + monitoring
+- **Automation**: direct Node.js background analysis เป็น path เริ่มต้น; `n8n` ยังรองรับเป็น optional orchestration/monitoring path
 - **UI**: shadcn/ui + TailwindCSS v4 + Lucide icons
 - **Language**: TypeScript strict mode
 
@@ -23,24 +23,24 @@ app/
     analyses.$id.tsx      # รายละเอียด (loader) + RetryButton
     well-known.tsx        # /.well-known/* → 404 เงียบๆ
     api/upload.tsx        # POST /api/upload — MinIO + Supabase
-    api/analyze.tsx       # POST /api/analyze — trigger n8n webhook, return 202
+    api/analyze.tsx       # POST /api/analyze — start analysis job, return 202 (direct by default)
     api/retry.tsx         # POST /api/retry/:id — ลบ result เก่า แล้วเริ่มใหม่
     api/status.tsx        # GET /api/status/:id — polling endpoint
-    api/callback/         # n8n callback endpoints (authenticated with X-N8N-Secret)
+    api/callback/         # optional n8n callback endpoints (authenticated with X-N8N-Secret)
       status.tsx             # POST — n8n เรียกเพื่อ update status (done/error)
       audio-download-url.tsx # GET — n8n ขอ presigned URL ดาวน์โหลดเสียง
       transcribe-audio.tsx   # POST — n8n ส่ง filename → app ทำ STT → return transcription
       save-analysis.tsx      # POST — n8n ส่งผลวิเคราะห์ → app บันทึกลง Supabase
       delete-audio.tsx       # POST — n8n สั่งลบไฟล์เสียงจาก MinIO
-    api/health.tsx        # GET — health check (n8n + MinIO + Supabase)
+    api/health.tsx        # GET — health check (MinIO + Supabase + optional n8n)
     api/search.tsx        # GET /api/search?q=... — semantic search ผ่าน MindsDB KB
     api/agent.tsx         # POST /api/agent { question } — NL analytics ผ่าน MindsDB Agent
   lib/
     supabase.server.ts    # DB operations (server only)
     minio.server.ts       # File storage (server only)
     litellm.server.ts     # AI calls — STT + LLM analysis (server only)
-    analysis.server.ts    # runAnalysis() — ไม่ใช้ใน n8n flow ปัจจุบัน (legacy reference)
-    n8n.server.ts         # n8n integration — triggerAnalysis(), triggerPostCallProcessing(), validateCallbackSecret() (server only)
+    analysis.server.ts    # runAnalysis() — direct in-process orchestration path (default when SKIP_N8N=true)
+    n8n.server.ts         # optional n8n integration — triggerAnalysis(), triggerPostCallProcessing(), validateCallbackSecret() (server only)
     mindsdb.server.ts     # MindsDB integration — semanticSearch(), askAnalyticsAgent() (server only)
     error-utils.ts        # cleanErrorMessage(), extractErrorMessage() — ใช้ได้ทั้ง client และ server
     logger.ts             # Structured logging — ANSI color (dev) / JSON (production)
@@ -48,6 +48,7 @@ app/
     audio-uploader.tsx    # Dropzone + upload/analyze flow + client polling
     audio-player.tsx      # HTML5 player ด้วย presigned URL
     emotion-badge.tsx     # แสดง positive/neutral/negative
+    semantic-search.tsx   # MindsDB semantic search UI + results
   types/
     analysis.ts           # AudioFile, AnalysisResult, Emotion types
 supabase/
@@ -62,11 +63,13 @@ n8n/
     02-daily-summary-report.json     # Cron: daily stats to Slack
     03-quality-gate.json             # Validate transcription quality
     04-stuck-processing-monitor.json # Detect stuck processing >10min
+    05-audio-cleanup.json            # Daily batch delete old audio files
 docs/
   architecture.md         # System architecture diagrams + data flow
   how-it-works.md         # Step-by-step walkthrough สำหรับ developer ใหม่
   auth-migration.md       # แผน migration เพิ่ม Supabase Auth
   metabase-dashboard.md   # Dashboard ID 317, SQL queries
+  status.md               # Feature status tracking (อ่านก่อนเริ่ม session)
 ```
 
 ## Conventions
@@ -117,13 +120,15 @@ docs/
 
 - `transcribeAudio(buffer, filename)` return `{ transcription, sttModel }` — ไม่ใช่ string เปล่าอีกต่อไป
 - `analyzeTranscription(text)` return `AnalysisOutput` ซึ่งรวม `summary` ด้วย
+- `runAnalysis(audioFileId, filename, originalName)` คือ direct background path ที่ใช้เมื่อ `SKIP_N8N=true`
+- `triggerAnalysis(...)` ใน `n8n.server.ts` ยังรองรับอยู่เมื่อ `SKIP_N8N=false`
 - Post-processing pipeline (LiteLLM path): `removeRepetitions(cleanThaiText(raw))`
 - `max_tokens: 1024` สำหรับ analysis — เพื่อให้ summary ไม่ถูกตัดกลางคัน
 
 ## Known Limitations (MVP)
 
-1. **n8n เป็น orchestration หลัก** — analysis รันใน n8n workflow ซึ่ง restart-safe กว่า Node.js fire-and-forget เดิม
-   - Fallback: Stuck Processing Monitor (n8n Workflow 4) ตรวจจับไฟล์ค้างเกิน 10 นาที แล้วเปลี่ยน status เป็น `error` อัตโนมัติ
+1. **Direct analysis รันแบบ fire-and-forget ใน Node.js process โดย default** — ถ้า web process restart ระหว่างงานยาว งานที่กำลังรันอาจล้มเหลวหรือหายกลางทางได้
+   - ทางเลือก: ตั้ง `SKIP_N8N=false` เพื่อย้าย orchestration ไป `n8n` หากต้องการ flow ที่แยกจาก web process
 2. **Cloudflare Connection Drop** — LiteLLM proxy อยู่หลัง Cloudflare ซึ่งตัด connection จริงที่ ~60s ไฟล์ใหญ่ (>5MB) จะ fail ด้วย "Connection error" เสมอ
    - Workaround: ใช้ไฟล์เล็กลง หรือชี้ `LITELLM_BASE_URL` ไปยัง endpoint ภายในที่ไม่ผ่าน Cloudflare
    - แนวทางถาวร: bypass ผ่าน Netbird IP หรือเพิ่ม timeout ใน Cloudflare dashboard
@@ -146,12 +151,13 @@ LITELLM_BASE_URL
 LITELLM_API_KEY
 LITELLM_STT_MODEL        # เช่น gpt-4o-mini-transcribe
 LITELLM_ANALYSIS_MODEL   # เช่น claude-sonnet-4-6
+ANALYSIS_PROMPT_TEMPLATE # optional; ถ้าตั้งค่า จะ override prompt วิเคราะห์ (ใช้ `{TRANSCRIPTION}` เป็น placeholder ได้)
 
 # n8n Integration (required — primary orchestration path)
 N8N_WEBHOOK_URL          # n8n base URL เช่น http://localhost:5678
 N8N_ANALYSIS_WEBHOOK_PATH # webhook path เช่น /webhook/voice-analysis
 N8N_CALLBACK_SECRET      # shared secret สำหรับ authenticate callback requests
-N8N_CALLBACK_BASE_URL    # URL ที่ n8น ใช้เรียกกลับมา React app เช่น http://localhost:3000
+N8N_CALLBACK_BASE_URL    # URL ที่ n8n ใช้เรียกกลับมา React app เช่น http://localhost:3000
 
 # MindsDB Integration (optional — semantic search + analytics agent)
 MINDSDB_HOST             # MindsDB server URL เช่น http://localhost:47334
