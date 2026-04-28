@@ -15,6 +15,10 @@ export default defineConfig(({ mode }) => {
     plugins: [tailwindcss(), reactRouter(), reactClickToComponent()],
     server: {
       allowedHosts: ["uncloak-dispense-bakeshop.ngrok-free.dev"],
+      host: process.env.DOCKER ? "0.0.0.0" : undefined,
+      port: 3000,
+      hmr: process.env.DOCKER ? { port: 24678, host: "localhost" } : undefined,
+      watch: process.env.DOCKER ? { usePolling: true, interval: 1000 } : undefined,
     },
     resolve: {
       tsconfigPaths: true,
