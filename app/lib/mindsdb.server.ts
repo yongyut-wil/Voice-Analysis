@@ -1,24 +1,68 @@
+import { extractErrorMessage } from "~/lib/error-utils";
 import { logger } from "~/lib/logger";
 
 const MINDSDB_BASE = (process.env.MINDSDB_HOST ?? "http://localhost:47334").replace(/\/$/, "");
+const MINDSDB_API_KEY = process.env.MINDSDB_API_KEY ?? "";
+const MAX_RETRIES = 2;
+const RETRY_DELAY_MS = 1_000;
 
-async function mindsdbFetch(sql: string, timeoutMs = 30_000) {
-  const apiKey = process.env.MINDSDB_API_KEY ?? "";
-  const resp = await fetch(`${MINDSDB_BASE}/api/sql/query`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-    },
-    body: JSON.stringify({ query: sql }),
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-  if (!resp.ok) throw new Error(`MindsDB query failed: ${resp.status} ${resp.statusText}`);
-  return resp.json() as Promise<{
-    columns?: Array<string | { name: string }>;
-    data?: unknown;
-    error?: string;
-  }>;
+interface MindsDBRawResult {
+  columns?: Array<string | { name: string }>;
+  data?: unknown;
+  error?: string;
+  type?: string;
+  error_message?: string;
+}
+
+function buildHeaders(): Record<string, string> {
+  return {
+    "Content-Type": "application/json",
+    ...(MINDSDB_API_KEY ? { Authorization: `Bearer ${MINDSDB_API_KEY}` } : {}),
+  };
+}
+
+async function mindsdbFetch(sql: string, timeoutMs = 30_000): Promise<MindsDBRawResult> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const resp = await fetch(`${MINDSDB_BASE}/api/sql/query`, {
+        method: "POST",
+        headers: buildHeaders(),
+        body: JSON.stringify({ query: sql }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+
+      if (!resp.ok) {
+        const body = await resp.text().catch(() => "");
+        throw new Error(`MindsDB query failed: ${resp.status} ${resp.statusText} ${body}`.trim());
+      }
+
+      const result = (await resp.json()) as MindsDBRawResult;
+      if (result.error || result.error_message) {
+        throw new Error(`MindsDB error: ${result.error ?? result.error_message}`);
+      }
+      return result;
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(extractErrorMessage(err));
+      const isRetryable =
+        lastError.message.includes("ECONNREFUSED") ||
+        lastError.message.includes("fetch failed") ||
+        lastError.message.includes("502") ||
+        lastError.message.includes("503");
+
+      if (!isRetryable || attempt === MAX_RETRIES) break;
+
+      logger.warn("mindsdb:retry", {
+        attempt: attempt + 1,
+        delay: RETRY_DELAY_MS,
+        err: lastError.message,
+      });
+      await new Promise((r) => setTimeout(r, RETRY_DELAY_MS * (attempt + 1)));
+    }
+  }
+
+  throw lastError ?? new Error("MindsDB query failed after retries");
 }
 
 // MindsDB HTTP API returns columnar format:
@@ -29,7 +73,6 @@ async function mindsdbQuery(
   fallbackColumns?: string[]
 ): Promise<Record<string, unknown>[]> {
   const result = await mindsdbFetch(sql);
-  if (result.error) throw new Error(`MindsDB error: ${result.error}`);
 
   const resolvedColumns = result.columns
     ? result.columns.map((col) => (typeof col === "string" ? col : col.name))
@@ -77,11 +120,12 @@ export async function semanticSearch(query: string, limit = 10): Promise<KBResul
 
   // Deduplicate by audio_file_id, keeping the highest-relevance chunk per file
   const seen = new Map<string, KBResult>();
-  for (const row of rows as unknown as KBResult[]) {
-    const key = row.audio_file_id ?? row.chunk_id;
+  for (const row of rows) {
+    const typed = row as unknown as KBResult;
+    const key = typed.audio_file_id ?? typed.chunk_id;
     const existing = seen.get(key);
-    if (!existing || (row.relevance ?? 0) > (existing.relevance ?? 0)) {
-      seen.set(key, row);
+    if (!existing || (typed.relevance ?? 0) > (existing.relevance ?? 0)) {
+      seen.set(key, typed);
     }
   }
 
@@ -96,7 +140,6 @@ export async function semanticSearch(query: string, limit = 10): Promise<KBResul
 export async function askAnalyticsAgent(question: string): Promise<string> {
   const sql = `SELECT answer FROM call_analytics_agent WHERE question = ${JSON.stringify(question)}`;
   const result = await mindsdbFetch(sql, 60_000);
-  if (result.error) throw new Error(`MindsDB error: ${result.error}`);
 
   // MindsDB Agent returns answer in 3 possible formats:
   // 1. Scalar:   data: 2          (simple count queries)
@@ -105,11 +148,11 @@ export async function askAnalyticsAgent(question: string): Promise<string> {
   let answer = "ไม่สามารถตอบได้";
 
   if (result.data != null && !Array.isArray(result.data)) {
-    answer = String(result.data);
+    answer = typeof result.data === "object" ? JSON.stringify(result.data) : String(result.data);
   } else if (Array.isArray(result.data) && result.data.length > 0) {
     const row = result.data[0] as unknown[];
     const val = row[0];
-    if (val != null) answer = String(val);
+    if (val != null) answer = typeof val === "object" ? JSON.stringify(val) : String(val);
   }
 
   logger.info("mindsdb:agent_query", { question, answered: answer !== "ไม่สามารถตอบได้" });
@@ -118,4 +161,24 @@ export async function askAnalyticsAgent(question: string): Promise<string> {
 
 export function isMindsDBConfigured(): boolean {
   return !!process.env.MINDSDB_HOST;
+}
+
+export async function checkMindsDBHealth(): Promise<{
+  ok: boolean;
+  status?: string;
+  error?: string;
+}> {
+  try {
+    const resp = await fetch(`${MINDSDB_BASE}/api/status`, {
+      method: "GET",
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!resp.ok) {
+      return { ok: false, error: `HTTP ${resp.status}` };
+    }
+    const body = (await resp.json()) as { status?: string };
+    return { ok: true, status: body.status };
+  } catch (err) {
+    return { ok: false, error: extractErrorMessage(err) };
+  }
 }
