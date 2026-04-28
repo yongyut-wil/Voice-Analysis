@@ -61,7 +61,9 @@ function normalizeQuestion(question: string): { normalized: string; corrected: b
       if (TYPO_MAP[lower]) {
         corrected = true;
         // Preserve original casing style: if all-lower, return all-lower; else title-case
-        return w === lower ? TYPO_MAP[lower] : TYPO_MAP[lower];
+        return w === lower
+          ? TYPO_MAP[lower]
+          : TYPO_MAP[lower].charAt(0).toUpperCase() + TYPO_MAP[lower].slice(1);
       }
       return w;
     })
