@@ -1,10 +1,10 @@
 import * as Minio from "minio";
-import { randomUUID } from "crypto";
-import path from "path";
+import { randomUUID } from "node:crypto";
+import path from "node:path";
 
 function getMinioClient() {
   const endpoint = process.env.MINIO_ENDPOINT ?? "localhost";
-  const port = parseInt(process.env.MINIO_PORT ?? "9000", 10);
+  const port = Number.parseInt(process.env.MINIO_PORT ?? "9000", 10);
   const useSSL = process.env.MINIO_USE_SSL === "true";
   const accessKey = process.env.MINIO_ACCESS_KEY;
   const secretKey = process.env.MINIO_SECRET_KEY;
@@ -20,12 +20,14 @@ function getStorageBaseUrl(): string {
   }
 
   const endpoint = process.env.MINIO_ENDPOINT ?? "localhost";
-  const port = process.env.MINIO_PORT ?? "9000";
   const useSSL = process.env.MINIO_USE_SSL === "true";
   const protocol = useSSL ? "https" : "http";
-  const isDefaultPort = (useSSL && port === "443") || (!useSSL && port === "80");
+  const portSuffix = useSSL ? "443" : "80";
+  const portValue = process.env.MINIO_PORT ?? "9000";
+  const isDefaultPort = portValue === portSuffix;
 
-  return `${protocol}://${endpoint}${isDefaultPort ? "" : `:${port}`}`;
+  const portPart = isDefaultPort ? "" : ":" + portValue;
+  return `${protocol}://${endpoint}${portPart}`;
 }
 
 export function getBucketName(): string {
@@ -81,6 +83,7 @@ export async function audioExists(filename: string): Promise<boolean> {
     await client.statObject(bucket, filename);
     return true;
   } catch {
+    // Object does not exist - this is expected behavior for existence check
     return false;
   }
 }

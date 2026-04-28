@@ -1,10 +1,9 @@
 import { downloadAudio, deleteAudio } from "~/lib/minio.server";
 import { transcribeAudio, analyzeTranscription } from "~/lib/litellm.server";
 import { updateAudioFileStatus, createAnalysisResult } from "~/lib/supabase.server";
-import { cleanErrorMessage } from "~/lib/error-utils";
 import { logger } from "~/lib/logger";
 
-export { cleanErrorMessage };
+export { cleanErrorMessage } from "~/lib/error-utils";
 
 export async function runAnalysis(
   audioFileId: string,
@@ -20,7 +19,7 @@ export async function runAnalysis(
     audioFileId,
     sttModel,
     chars: transcription.length,
-    preview: transcription.slice(0, 80).replace(/\n/g, " "),
+    preview: transcription.slice(0, 80).replaceAll("\n", " "),
     elapsed_ms: Date.now() - startTime,
   });
 

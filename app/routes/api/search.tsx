@@ -22,7 +22,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   }
 
   const limitParam = url.searchParams.get("limit");
-  const limit = limitParam ? Math.min(Math.max(1, parseInt(limitParam, 10)), 50) : 10;
+  const limit = limitParam ? Math.min(Math.max(1, Number.parseInt(limitParam, 10)), 50) : 10;
 
   try {
     const results = await semanticSearch(q, limit);

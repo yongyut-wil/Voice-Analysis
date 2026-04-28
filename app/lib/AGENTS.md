@@ -18,7 +18,8 @@ Applies to files under `app/lib/**`.
 - `supabase.server.ts`: database reads and writes
 - `minio.server.ts`: object storage operations
 - `litellm.server.ts`: STT and analysis model calls
-- `n8n.server.ts`: webhook trigger and orchestration handoff to n8n
+- `analysis.server.ts`: direct background orchestration for download → STT → analysis → save → cleanup
+- `n8n.server.ts`: optional webhook trigger and orchestration handoff when `SKIP_N8N=false`
 - `error-utils.ts`: shared error normalization
 - `logger.ts`: structured logging
 

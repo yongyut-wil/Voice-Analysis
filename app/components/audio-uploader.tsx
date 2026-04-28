@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import { useNavigate } from "react-router";
 import { Card, CardContent } from "~/components/ui/card";
@@ -14,9 +14,7 @@ const ACCEPTED_TYPES = {
   "audio/x-m4a": [".m4a"],
 };
 
-const POLL_INTERVAL_MS = 3000;
-
-type UploadState = "idle" | "uploading" | "analyzing" | "done" | "error";
+type UploadState = "idle" | "uploading" | "error";
 
 async function readErrorMessage(response: Response, fallback: string): Promise<string> {
   const contentType = response.headers.get("content-type") ?? "";
@@ -44,48 +42,6 @@ export function AudioUploader() {
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  // หยุด polling เมื่อ component unmount
-  useEffect(() => {
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
-  }, []);
-
-  const startPolling = useCallback(
-    (audioFileId: string) => {
-      let dots = 0;
-      pollRef.current = setInterval(async () => {
-        try {
-          const res = await fetch(`/api/status/${audioFileId}`);
-          const json = (await res.json()) as {
-            status: string;
-            error: string | null;
-            analysisId: string | null;
-          };
-
-          // animate progress 50 → 95 ระหว่างรอ
-          dots = (dots + 1) % 4;
-          setProgress((p) => Math.min(p + 3, 95));
-
-          if (json.status === "done") {
-            clearInterval(pollRef.current!);
-            setProgress(100);
-            setState("done");
-            navigate(`/analyses/${audioFileId}?result=${json.analysisId}`);
-          } else if (json.status === "error") {
-            clearInterval(pollRef.current!);
-            setState("error");
-            setError(json.error ?? "เกิดข้อผิดพลาดระหว่างวิเคราะห์");
-          }
-        } catch {
-          // network error — ลอง poll ต่อ
-        }
-      }, POLL_INTERVAL_MS);
-    },
-    [navigate]
-  );
 
   const processFile = useCallback(
     async (file: File) => {
@@ -104,10 +60,7 @@ export function AudioUploader() {
           );
         }
         const { audioFileId } = (await uploadRes.json()) as { audioFileId: string };
-        setProgress(40);
-
-        setState("analyzing");
-        setProgress(50);
+        setProgress(60);
 
         const analyzeRes = await fetch("/api/analyze", {
           method: "POST",
@@ -120,15 +73,15 @@ export function AudioUploader() {
           );
         }
 
-        // server return 202 ทันที — เริ่ม polling
-        startPolling(audioFileId);
+        // server return 202 ทันที — ไปหน้า detail เลย หน้า detail จะ polling เอง
+        navigate(`/analyses/${audioFileId}`);
       } catch (err) {
         setState("error");
         const message = err instanceof Error ? err.message.trim() : "";
         setError(message || "เกิดข้อผิดพลาด กรุณาลองใหม่");
       }
     },
-    [startPolling]
+    [navigate]
   );
 
   const onDrop = useCallback(
@@ -146,10 +99,19 @@ export function AudioUploader() {
     accept: ACCEPTED_TYPES,
     maxSize: 100 * 1024 * 1024,
     multiple: false,
-    disabled: state === "uploading" || state === "analyzing",
+    disabled: state === "uploading",
   });
 
-  const isProcessing = state === "uploading" || state === "analyzing";
+  const isProcessing = state === "uploading";
+
+  let uploadIcon: React.ReactNode;
+  if (isProcessing) {
+    uploadIcon = <Loader2 className="text-primary h-12 w-12 animate-spin" />;
+  } else if (selectedFile) {
+    uploadIcon = <FileAudio className="text-primary h-12 w-12" />;
+  } else {
+    uploadIcon = <UploadCloud className="text-muted-foreground h-12 w-12" />;
+  }
 
   return (
     <div className="mx-auto w-full max-w-xl space-y-4">
@@ -164,25 +126,13 @@ export function AudioUploader() {
         <CardContent className="flex flex-col items-center justify-center gap-4 py-12">
           <input {...getInputProps()} />
 
-          {isProcessing ? (
-            <Loader2 className="text-primary h-12 w-12 animate-spin" />
-          ) : selectedFile ? (
-            <FileAudio className="text-primary h-12 w-12" />
-          ) : (
-            <UploadCloud className="text-muted-foreground h-12 w-12" />
-          )}
+          {uploadIcon}
 
           <div className="text-center">
             {state === "uploading" && (
               <>
-                <p className="font-medium">กำลังอัพโหลด...</p>
+                <p className="font-medium">กำลังอัพโหลดและเริ่มวิเคราะห์...</p>
                 <p className="text-muted-foreground text-sm">{selectedFile?.name}</p>
-              </>
-            )}
-            {state === "analyzing" && (
-              <>
-                <p className="font-medium">กำลังวิเคราะห์เสียง...</p>
-                <p className="text-muted-foreground text-sm">อาจใช้เวลา 1–3 นาที กรุณารอสักครู่</p>
               </>
             )}
             {(state === "idle" || state === "error") && (

@@ -56,9 +56,9 @@
 │  └───────────┼─────────────────────┼──────────────────────┼────────────┘    │
 │              │                     │                      │                  │
 │  ┌───────────┼─────────────────────┼──────────────────────┼────────────┐    │
-│  │           │   n8n.server.ts                            │            │    │
-│  │           │   triggerAnalysis() — analyze + retry      │            │    │
-│  │           │   triggerPostCallProcessing() — alerting   │            │    │
+│  │           │   analysis.server.ts / n8n.server.ts       │            │    │
+│  │           │   runAnalysis() — direct orchestration     │            │    │
+│  │           │   triggerAnalysis() — optional n8n path    │            │    │
 │  │           │   validateCallbackSecret() — auth guard    │            │    │
 │  └───────────┼─────────────────────┼──────────────────────┼────────────┘    │
 │              │                     │                      │                  │
@@ -70,36 +70,37 @@
 │   MinIO (S3)         │ │   Supabase (PG)      │ │   AI Services            │
 │                      │ │                      │ │                          │
 │  Bucket:             │ │  audio_files         │ │  ┌────────────────────┐  │
-│  voice-analysis      │ │  ├─ id (UUID)        │ │  │  LiteLLM Proxy     │  │
-│                      │ │  ├─ filename         │ │  │  models.thcloud.ai │  │
-│  Lifecycle:          │ │  ├─ original_name    │ │  │                    │  │
-│  1. Upload → store   │ │  ├─ status           │ │  │  n8n workflow      │  │
-│  2. Analyze → n8n    │ │  └─ ...             │ │           ▲               │
-│  3. Done → delete    │ │                      │ │   all AI calls via n8n   │
-│                      │ │  analysis_results    │ │           │               │
-│  Presigned URL:      │ │  ├─ id (UUID)        │ │  ┌────────┴───────────┐  │
-│  callback workflow   │ │  ├─ audio_file_id FK │ │  │  STT model         │  │
-│  fetches when needed │ │  ├─ transcription    │ │  │  └─ gpt-4o-mini-   │  │
-│                      │ │  ├─ emotion          │ │  │     transcribe     │  │
-└──────────────────────┘ │  ├─ satisfaction_score│  │  │                    │  │
-                         │  ├─ summary          │ │  │  Analysis model:   │  │
-                         │  └─ ...              │ │  │  └─ claude-sonnet  │  │
-                         │                      │ │  │                    │  │
-                         └──────────────────────┘ │  ⚠ Behind           │  │
-                                                  │  Cloudflare CDN     │  │
-                                                  │  timeout ~60-100s   │  │
-                                                  └────────────────────┘  │
-                                                                          │
-                                                       ┌──────────────┐   │
-                                                       │  Cloudflare  │   │
-                                                       │  CDN/Proxy   │   │
-                                                       │  (524 risk)  │   │
-                                                       └──────────────┘   │
-                                                          ▲                │
-                                                          │                │
-                                              All LiteLLM traffic        │
-                                              routes through CF          │
-                                                                         │
+│  voice-analysis      │ │  ├─ id (UUID)        │ │  │  direct Node.js    │  │
+│                      │ │  ├─ filename         │ │  │  analysis path     │  │
+│  Lifecycle:          │ │  ├─ original_name    │ │  │  (`n8n` optional)  │  │
+│  1. Upload → store   │ │  ├─ status           │ │  │                    │  │
+│  2. Analyze → direct │ │  └─ ...              │ │  │  STT model         │  │
+│  3. Done → delete    │ │                      │ │  │  └─ gpt-4o-mini-   │  │
+│                      │ │  analysis_results    │ │  │     transcribe     │  │
+│  Presigned URL:      │ │  ├─ id (UUID)        │ │  │                    │  │
+│  optional callback   │ │  ├─ audio_file_id FK │ │  │  Analysis model:   │  │
+│  fetches when needed │ │  ├─ transcription    │ │  │  └─ claude-sonnet  │  │
+│                      │ │  ├─ emotion          │ │  │                    │  │
+│                      │ │  ├─ satisfaction_score│ │  │                    │  │
+│                      │ │  └─ ...              │ │  │                    │  │
+│                      │ │                      │ │  │                    │  │
+│                      │ └──────────────────────┘ │  │                    │  │
+│                      │                        │  │                    │  │
+│                      │                        │  ⚠ Behind           │  │
+│                      │                        │  Cloudflare CDN     │  │
+│                      │                        │  timeout ~60-100s   │  │
+│                      └──────────────────────┘ │  └────────────────────┘  │
+│                                                   │                      │
+│                                                  ┌──────────────┐   │
+│                                                  │  Cloudflare  │   │
+│                                                  │  CDN/Proxy   │   │
+│                                                  │  (524 risk)  │   │
+│                                                  └──────────────┘   │
+│                                                      ▲                │
+│                                                      │                │
+│                                          All LiteLLM traffic        │
+│                                          routes through CF          │
+│                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -107,14 +108,14 @@
 
 ## 2. Service Inventory
 
-| Service               | ประเภท                | Host                       | Protocol               | หน้าที่                                           |
-| --------------------- | --------------------- | -------------------------- | ---------------------- | ------------------------------------------------- |
-| React Router v7       | Application           | Node.js                    | HTTP                   | SSR + API routes + n8n callback endpoints         |
-| MinIO                 | Object Storage        | Docker (local) / S3 (prod) | S3 API                 | เก็บไฟล์เสียงชั่วคราว (upload → analyze → delete) |
-| Supabase (PostgreSQL) | Database              | Cloud (supabase.co)        | HTTPS/REST             | เก็บ metadata + ผลวิเคราะห์ถาวร                   |
-| n8n                   | Workflow Orchestrator | Cloud (`n8n.thcloud.ai`)   | HTTPS/Webhook          | คุม pipeline การวิเคราะห์, callback, monitoring   |
-| LiteLLM Proxy         | AI API Gateway        | Cloud (models.thcloud.ai)  | HTTPS (via Cloudflare) | STT + LLM analysis ผ่าน n8n workflow              |
-| Cloudflare CDN        | Reverse Proxy         | Edge                       | HTTPS                  | หน้า LiteLLM proxy — มี timeout risk              |
+| Service               | ประเภท                | Host                       | Protocol               | หน้าที่                                                |
+| --------------------- | --------------------- | -------------------------- | ---------------------- | ------------------------------------------------------ |
+| React Router v7       | Application           | Node.js                    | HTTP                   | SSR + API routes + direct background analysis          |
+| MinIO                 | Object Storage        | Docker (local) / S3 (prod) | S3 API                 | เก็บไฟล์เสียงชั่วคราว (upload → analyze → delete)      |
+| Supabase (PostgreSQL) | Database              | Cloud (supabase.co)        | HTTPS/REST             | เก็บ metadata + ผลวิเคราะห์ถาวร                        |
+| n8n                   | Workflow Orchestrator | Cloud (`n8n.thcloud.ai`)   | HTTPS/Webhook          | optional orchestration path, callback, monitoring      |
+| LiteLLM Proxy         | AI API Gateway        | Cloud (models.thcloud.ai)  | HTTPS (via Cloudflare) | STT + LLM analysis สำหรับ direct และ optional n8n path |
+| Cloudflare CDN        | Reverse Proxy         | Edge                       | HTTPS                  | หน้า LiteLLM proxy — มี timeout risk                   |
 
 ---
 
@@ -136,38 +137,42 @@ Step 1: Upload
                                     │
                          ◄──────────┘ { audioFileId }
 
-Step 2: Trigger Analysis
-────────────────────────
+ Step 2: Trigger Analysis
+ ────────────────────────
   ──POST /api/analyze──────────────►  updateStatus(processing)──► Supabase
          { audioFileId }              │
+                                      ├─analysisJob() ──► runAnalysis() by default
+                                      │
+                          ◄────────────┘ 202 { status: processing }
+
+Step 3: Background Analysis (direct path by default)
+───────────────────────────────────────────────
+                                      │
+                    runAnalysis() → downloadAudio()────────────► MinIO
+                          ◄─────────── binary                  │
+                                      │
+                    transcribeAudio()──────────────────────────► LiteLLM STT
+                          ◄─── { transcription, sttModel }    │
+                                      │
+                    analyzeTranscription()────────────────────► LiteLLM → Claude
+                          ◄─── AnalysisOutput (JSON)          │
+                                      │
+                    createAnalysisResult()────────────────────► Supabase
+                                      │
+                    updateAudioFileStatus(done)───────────────► Supabase
+                                      │
+                    deleteAudio()─────────────────────────────► MinIO
+                                      │
+Optional path: if `SKIP_N8N=false`, `analysisJob()` switches to `triggerAnalysis()` and the `n8n` workflow uses callback routes for STT/save/status/cleanup.
+                                      │
+                                      ├─deleteAnalysisResult()──► Supabase
+                                      │  (ลบ result เก่า)
+                                      │
+                                      ├─updateStatus(processing)► Supabase
+                                      │
                                       ├─triggerAnalysis() ──► n8n webhook
                                       │
                          ◄────────────┘ 202 { status: processing }
-
-Step 3: Background Analysis (n8n workflow)
-──────────────────────────────────────────
-                                      │
-          GET /api/callback/audio-download-url────────► React Router → presigned URL
-                          ◄─── presigned URL           │
-                                      │
-                          Download Audio (direct)──────► MinIO (via presigned URL)
-                          ◄─────────── binary           │
-                                      │
-          POST /api/callback/transcribe-audio──────────► React Router → LiteLLM STT
-          { filename, originalName }              cleanThaiText + removeRepetitions
-                          ◄─── { transcription, sttModel }
-                                      │
-                          LLM Analysis─────────────────► LiteLLM → Claude
-                          ◄─── AnalysisOutput (JSON)
-                                      │
-          POST /api/callback/save-analysis────────────► React Router → Supabase
-          { audioFileId, transcription, ... }          ◄─── { analysisId }
-                                      │
-          POST /api/callback/status──────────────────► React Router → Supabase status=done
-                                      │
-          POST /api/callback/delete-audio─────────────► React Router → MinIO delete
-                                      │
-          POST /webhook/post-call-processing──────────► n8n alerting workflow (fire-forget)
 
 Step 4: Client Polling
 ──────────────────────
@@ -197,7 +202,7 @@ Step 4: Client Polling
                                       │
                                       ├─updateStatus(processing)► Supabase
                                       │
-                                      ├─triggerAnalysis() ──► n8n webhook
+                                      ├─analysisJob() ──► runAnalysis() by default
                                       │
                          ◄────────────┘ 202 { status: processing }
 
@@ -228,22 +233,18 @@ Step 4: Client Polling
 │              └───────┬───────┘    └───────────────┘  │
 │                      │                               │
 │  ┌───────────────────┼───────────────────────────┐   │
-│  │   n8n.server.ts (webhook trigger)             │   │
+│  │   analysis.server.ts (direct trigger)         │   │
 │  │                                               │   │
-│  │   triggerAnalysis(id, filename, originalName) │   │
-│  │     1. POST /webhook/voice-analysis          │   │
-│  │     2. n8n workflow orchestrates STT/LLM     │   │
-│  │     3. callback routes update DB + cleanup   │   │
+│  │   runAnalysis(id, filename, originalName)     │   │
+│  │     1. download from MinIO                    │   │
+│  │     2. STT + LLM analysis via LiteLLM         │   │
+│  │     3. save result + update status + cleanup  │   │
 │  └───────────────────┼───────────────────────────┘   │
 │                      │                               │
 │              ┌───────┴─────────────┐                 │
-│              │ n8n workflow +      │                 │
-│              │ callback APIs       │                 │
-│              │                     │                 │
 │              │ LiteLLM STT         │                 │
 │              │ LiteLLM Analysis    │                 │
 │              └─────────────────────┘                 │
-│                                                     │
 │  ┌───────────────┐    ┌───────────────┐             │
 │  │ error-utils   │    │ logger        │             │
 │  │ (client+svr)  │    │ (server only) │             │
@@ -255,7 +256,7 @@ Step 4: Client Polling
 
 - `.server.ts` → ห้าม import ใน client component (จะทำให้ Vite พัง)
 - `error-utils.ts` + `logger.ts` → ใช้ได้ทั้ง client และ server
-- `n8n.server.ts` → trigger webhook ไป orchestration layer หลักของระบบ
+- `analysis.server.ts` → orchestration path หลักเมื่อ `SKIP_N8N=true`; `n8n.server.ts` ใช้เมื่อเปิด optional workflow path
 
 ---
 
@@ -286,7 +287,7 @@ Step 4: Client Polling
                          │ POST /api/analyze หรือ POST /api/retry/:id
                          ▼
                    ┌────────────┐
-                   │ processing │  ← n8n workflow กำลังทำงาน
+                   │ processing │  ← direct background job หรือ optional n8n workflow กำลังทำงาน
                    └─┬────────┬─┘
                      │        │
               สำเร็จ  │        │  ล้มเหลว
@@ -301,13 +302,13 @@ Step 4: Client Polling
 
 **การเปลี่ยน status ใน code:**
 
-| From → To            | เกิดเมื่อ               | Route / Function                                        |
-| -------------------- | ----------------------- | ------------------------------------------------------- |
-| → pending            | สร้าง audio_file record | `api/upload` → `createAudioFile()`                      |
-| pending → processing | เริ่ม analyze           | `api/analyze` → `updateAudioFileStatus("processing")`   |
-| processing → done    | analysis สำเร็จ         | `api/callback/status` หลัง `api/callback/save-analysis` |
-| processing → error   | analysis ล้มเหลว        | `api/callback/status` จาก n8n callback                  |
-| error → processing   | user กด Retry           | `api/retry` → `updateAudioFileStatus("processing")`     |
+| From → To            | เกิดเมื่อ               | Route / Function                                               |
+| -------------------- | ----------------------- | -------------------------------------------------------------- |
+| → pending            | สร้าง audio_file record | `api/upload` → `createAudioFile()`                             |
+| pending → processing | เริ่ม analyze           | `api/analyze` → `updateAudioFileStatus("processing")`          |
+| processing → done    | analysis สำเร็จ         | `analysis.server.ts` หรือ `api/callback/status`                |
+| processing → error   | analysis ล้มเหลว        | catch block ใน `api/analyze` / `api/retry` หรือ `n8n` callback |
+| error → processing   | user กด Retry           | `api/retry` → `updateAudioFileStatus("processing")`            |
 
 ---
 
@@ -367,9 +368,9 @@ Step 4: Client Polling
 |------|-------|---------|
 | Await analysis ใน request | ง่าย, code ตรง | Timeout, bad UX |
 | Fire-and-forget + Polling ใน Node.js | ตอบไว, resilient | เสี่ยงค้างเมื่อ process restart |
-| **n8n workflow + Polling** | Robust, restart-safe | ต้องดูแล webhook/callback contract |
+| `n8n workflow + Polling` | Robust, restart-safe | ต้องดูแล webhook/callback contract |
 
-**ที่เลือก:** n8n workflow + Polling — ยังคง UX แบบ async เดิม แต่ย้าย orchestration ออกนอก web process
+**ที่เลือกปัจจุบัน:** Fire-and-forget + Polling ใน Node.js เป็นค่าเริ่มต้นเพื่อให้ flow เรียบง่ายขึ้น โดยยังคง `n8n` ไว้เป็นทางเลือกเมื่ออยากแยก orchestration ออกจาก web process
 
 ### 9.2 แยก Upload กับ Analyze
 
@@ -389,16 +390,12 @@ Step 4: Client Polling
 
 **Trade-off:** ไม่สามารถเล่นเสียงย้อนหลังหรือ retry ได้ (ไฟล์หายจาก MinIO แล้ว)
 
-### 9.4 LiteLLM ผ่าน n8n เป็นเส้นทางเดียว
+### 9.4 LiteLLM เป็นเส้นทาง AI หลัก ส่วน orchestration เลือกได้
 
-| หัวข้อ        | สถานะปัจจุบัน                                              |
-| ------------- | ---------------------------------------------------------- |
-| STT path      | LiteLLM ผ่าน `LITELLM_STT_MODEL`                           |
-| Orchestration | n8n webhook + callback                                     |
-| Timeout risk  | ยังมีถ้า LiteLLM อยู่หลัง Cloudflare                       |
-| การตั้งค่า    | ใช้ `N8N_*` และ `LITELLM_*` env vars                       |
-| เหตุผล        | ลด branching, ทำ flow ให้สม่ำเสมอ และ restart-safe มากขึ้น |
-
----
-
-_สร้างเมื่อ 2026-04-16_
+| หัวข้อ        | สถานะปัจจุบัน                                                           |
+| ------------- | ----------------------------------------------------------------------- |
+| STT path      | LiteLLM ผ่าน `LITELLM_STT_MODEL`                                        |
+| Orchestration | direct Node.js เมื่อ `SKIP_N8N=true`, หรือ `n8n` เมื่อ `SKIP_N8N=false` |
+| Timeout risk  | ยังมีถ้า LiteLLM อยู่หลัง Cloudflare                                    |
+| การตั้งค่า    | ใช้ `LITELLM_*` เสมอ และ `N8N_*` เมื่อเปิด optional path                |
+| เหตุผล        | ใช้ AI provider เดียว แต่คง flexibility เรื่อง orchestration            |

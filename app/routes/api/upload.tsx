@@ -6,14 +6,14 @@ import { logger } from "~/lib/logger";
 import type { Route } from "./+types/upload";
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100 MB
-const ALLOWED_TYPES = [
+const ALLOWED_TYPES = new Set([
   "audio/mpeg",
   "audio/wav",
   "audio/mp4",
   "audio/ogg",
   "audio/webm",
   "audio/x-m4a",
-];
+]);
 
 function getUploadErrorMessage(err: unknown): string {
   console.log("getUploadErrorMessage", err);
@@ -48,7 +48,7 @@ export async function action({ request }: Route.ActionArgs) {
   }
 
   const mimeType = file.type || "audio/mpeg";
-  if (!ALLOWED_TYPES.includes(mimeType)) {
+  if (!ALLOWED_TYPES.has(mimeType)) {
     return data({ error: `Unsupported file type: ${mimeType}` }, { status: 400 });
   }
 

@@ -4,6 +4,7 @@ import { Input } from "~/components/ui/input";
 import { Button } from "~/components/ui/button";
 
 interface Message {
+  id: string;
   role: "user" | "agent";
   content: string;
 }
@@ -29,7 +30,7 @@ export function AnalyticsChat() {
     const q = (question ?? input).trim();
     if (!q || loading) return;
     setInput("");
-    setMessages((prev) => [...prev, { role: "user", content: q }]);
+    setMessages((prev) => [...prev, { id: crypto.randomUUID(), role: "user", content: q }]);
     setLoading(true);
     try {
       const res = await fetch("/api/agent", {
@@ -40,10 +41,17 @@ export function AnalyticsChat() {
       const data = (await res.json()) as { answer?: string; error?: string };
       setMessages((prev) => [
         ...prev,
-        { role: "agent", content: data.answer ?? data.error ?? "ไม่สามารถตอบได้" },
+        {
+          id: crypto.randomUUID(),
+          role: "agent",
+          content: data.answer ?? data.error ?? "ไม่สามารถตอบได้",
+        },
       ]);
     } catch {
-      setMessages((prev) => [...prev, { role: "agent", content: "เกิดข้อผิดพลาด กรุณาลองใหม่" }]);
+      setMessages((prev) => [
+        ...prev,
+        { id: crypto.randomUUID(), role: "agent", content: "เกิดข้อผิดพลาด กรุณาลองใหม่" },
+      ]);
     } finally {
       setLoading(false);
     }
@@ -80,8 +88,8 @@ export function AnalyticsChat() {
 
       {messages.length > 0 && (
         <div ref={scrollRef} className="max-h-64 space-y-3 overflow-y-auto pr-1">
-          {messages.map((m, i) => (
-            <div key={i} className={`flex gap-2 ${m.role === "user" ? "flex-row-reverse" : ""}`}>
+          {messages.map((m) => (
+            <div key={m.id} className={`flex gap-2 ${m.role === "user" ? "flex-row-reverse" : ""}`}>
               <div
                 className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
                   m.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"

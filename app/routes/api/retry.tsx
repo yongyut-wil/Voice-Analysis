@@ -6,7 +6,8 @@ import {
 } from "~/lib/supabase.server";
 import { audioExists } from "~/lib/minio.server";
 import { triggerAnalysis } from "~/lib/n8n.server";
-import { cleanErrorMessage, extractErrorMessage } from "~/lib/error-utils";
+import { runAnalysis, cleanErrorMessage } from "~/lib/analysis.server";
+import { extractErrorMessage } from "~/lib/error-utils";
 import { logger } from "~/lib/logger";
 import type { Route } from "./+types/retry";
 
@@ -39,9 +40,18 @@ export async function action({ request, params }: Route.ActionArgs) {
 
   logger.info("retry:queued", { audioFileId: id, name: audioFile.original_name });
 
-  triggerAnalysis(id, audioFile.filename, audioFile.original_name).catch(async (err: unknown) => {
+  const skipN8n = process.env.SKIP_N8N === "true";
+  const analysisJob = skipN8n
+    ? () => runAnalysis(id, audioFile.filename, audioFile.original_name)
+    : () => triggerAnalysis(id, audioFile.filename, audioFile.original_name);
+
+  analysisJob().catch(async (err: unknown) => {
     const message = cleanErrorMessage(extractErrorMessage(err));
-    logger.error("retry:failed", { audioFileId: id, error: message });
+    logger.error("retry:failed", {
+      audioFileId: id,
+      error: message,
+      mode: skipN8n ? "direct" : "n8n",
+    });
     await updateAudioFileStatus(id, "error", message);
   });
 

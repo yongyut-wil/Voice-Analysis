@@ -98,9 +98,11 @@ export default function Analyses({ loaderData }: Route.ComponentProps) {
               <CardHeader className="border-b pb-3">
                 <CardTitle className="flex items-center gap-2 text-sm font-medium">
                   <MessageSquare className="h-4 w-4" />
-                  ถามข้อมูล
+                  ถาม-ตอบ AI
                 </CardTitle>
-                <CardDescription>ถามด้วยภาษาธรรมชาติ AI ตอบจากข้อมูลจริง</CardDescription>
+                <CardDescription>
+                  ถามอะไรก็ได้เกี่ยวกับข้อมูลการโทร ตอบจากข้อมูลจริง
+                </CardDescription>
               </CardHeader>
               <CardContent className="pt-4">
                 <AnalyticsChat />
@@ -140,7 +142,7 @@ export default function Analyses({ loaderData }: Route.ComponentProps) {
                     <TableRow
                       key={file.id}
                       className="hover:bg-muted/50 cursor-pointer transition-colors duration-150"
-                      onClick={() => (window.location.href = `/analyses/${file.id}`)}
+                      onClick={() => (globalThis.location.href = `/analyses/${file.id}`)}
                     >
                       <TableCell className="max-w-[200px] truncate font-medium">
                         {file.original_name}
@@ -160,24 +162,26 @@ export default function Analyses({ loaderData }: Route.ComponentProps) {
                         <EmotionBadge emotion={(analysis?.emotion as Emotion) ?? null} />
                       </TableCell>
                       <TableCell>
-                        {analysis ? (
-                          analysis.illegal_detected ? (
-                            <span className="text-destructive flex items-center gap-1 text-sm font-medium">
-                              <AlertTriangle className="h-3.5 w-3.5" />
-                              พบ
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground text-sm">ปกติ</span>
-                          )
-                        ) : (
-                          <span className="text-muted-foreground text-sm">-</span>
-                        )}
+                        {(() => {
+                          if (!analysis) {
+                            return <span className="text-muted-foreground text-sm">-</span>;
+                          }
+                          if (analysis.illegal_detected) {
+                            return (
+                              <span className="text-destructive flex items-center gap-1 text-sm font-medium">
+                                <AlertTriangle className="h-3.5 w-3.5" />
+                                พบ
+                              </span>
+                            );
+                          }
+                          return <span className="text-muted-foreground text-sm">ปกติ</span>;
+                        })()}
                       </TableCell>
                       <TableCell>
-                        {analysis?.satisfaction_score != null ? (
-                          <span className="text-sm">{analysis.satisfaction_score}/100</span>
-                        ) : (
+                        {analysis?.satisfaction_score == null ? (
                           <span className="text-muted-foreground text-sm">-</span>
+                        ) : (
+                          <span className="text-sm">{analysis.satisfaction_score}/100</span>
                         )}
                       </TableCell>
                     </TableRow>

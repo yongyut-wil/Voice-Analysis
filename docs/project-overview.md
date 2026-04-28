@@ -93,8 +93,8 @@ Voice Analysis/
 │   │   ├── supabase.server.ts  # Database operations (server only)
 │   │   ├── minio.server.ts     # File storage operations (server only)
 │   │   ├── litellm.server.ts   # AI (STT + Claude) (server only)
-│   │   ├── n8n.server.ts       # triggerAnalysis() + n8n webhook integration
-│   │   ├── analysis.server.ts  # runAnalysis() — legacy in-process path (server only)
+│   │   ├── n8n.server.ts       # triggerAnalysis() + optional n8n integration
+│   │   ├── analysis.server.ts  # runAnalysis() — direct orchestration path (server only)
 │   │   ├── error-utils.ts      # cleanErrorMessage() (client + server)
 │   │   ├── logger.ts           # Structured logging (dev: colorized, prod: JSON)
 │   │   └── utils.ts            # ฟังก์ชันทั่วไป
@@ -219,13 +219,16 @@ Client → POST /api/analyze { audioFileId }
               ↓
          อัพเดต status → 'processing'
               ↓
-         triggerAnalysis() — ยิงเข้า n8n webhook (ไม่ await)
+         analysisJob() — เลือก `runAnalysis()` หรือ `triggerAnalysis()` ตาม `SKIP_N8N`
               ↓
          return 202 { audioFileId, status: "processing" } ← ทันที
 
-         [background ผ่าน n8n]
-         fetch audio → STT → Claude → callback กลับมา save result
-         → อัพเดต status 'done' หรือ 'error'
+         [background]
+         default: direct Node.js flow
+         download audio → STT → Claude → save result → update status
+
+         [optional]
+         ถ้า `SKIP_N8N=false` ค่อยส่งเข้า n8n workflow + callback routes
 ```
 
 **ทำไมใช้ fire-and-forget?**
@@ -247,7 +250,7 @@ Client → POST /api/retry/:id
               ↓
          updateStatus → 'processing'
               ↓
-         triggerAnalysis() — ยิงเข้า n8n webhook ใหม่ (ไม่ await)
+         analysisJob() — เริ่มใหม่ตาม path ปัจจุบัน (`runAnalysis()` หรือ `triggerAnalysis()`)
               ↓
          return 202 { audioFileId, status: "processing" }
 ```
@@ -297,7 +300,7 @@ const url = await minioClient.presignedGetObject(bucket, filename, 3600);
 
 ### 6.2 Speech-to-Text (STT)
 
-ระบบใช้ LiteLLM STT model ผ่าน n8n workflow ตาม environment variable:
+ระบบใช้ LiteLLM STT model ใน analysis pipeline ปัจจุบัน โดย direct Node.js path เป็นค่าเริ่มต้น และ optional `n8n` path จะเรียกกลับมาที่ server สำหรับ STT เช่นกัน:
 
 | env var `LITELLM_STT_MODEL` | Provider ที่ใช้  |
 | --------------------------- | ---------------- |
@@ -583,10 +586,10 @@ CMD ["yarn", "start"]
 
 ### Server Restart ระหว่าง Analyze
 
-n8n เป็น orchestration หลักของงาน analyze แล้ว จึงลดความเสี่ยงจากการที่ React Router server restart ระหว่างงานยาวๆ ได้มากกว่าเดิม
+ค่าเริ่มต้นปัจจุบันคือ direct Node.js background job ดังนั้นถ้า React Router server restart ระหว่างงานยาว งานที่กำลังประมวลผลอาจ fail หรือค้างที่ `processing` ได้
 
-**Workaround:** ใช้ Stuck Processing Monitor ใน n8n เพื่อตรวจจับไฟล์ที่ค้าง และแก้ status ด้วยมือใน Supabase เป็น `error` แล้วกด Retry ใน UI หากจำเป็น  
-**แนวทางแก้ถาวร:** ให้ workflow n8n ทุกตัวมี error callback/path ชัดเจน และรันบน infrastructure ที่แยกจาก web app
+**Workaround:** แก้ status ด้วยมือใน Supabase เป็น `error` แล้วกด Retry ใน UI หากจำเป็น; ถ้าต้องการแยก orchestration ออกจาก web app ให้ตั้ง `SKIP_N8N=false` เพื่อใช้ `n8n` path  
+**แนวทางแก้ถาวร:** ย้าย orchestration ไป worker queue หรือใช้ `n8n`/external worker ที่มี error callback/path ชัดเจน
 
 ### Cloudflare 524 Timeout
 
@@ -633,8 +636,9 @@ LITELLM_BASE_URL=https://models.thcloud.ai/v1
 LITELLM_API_KEY=sk-...
 LITELLM_STT_MODEL=gpt-4o-mini-transcribe
 LITELLM_ANALYSIS_MODEL=claude-sonnet-4-6
+SKIP_N8N=true
 
-# n8n
+# n8n (optional — ใช้เมื่อ SKIP_N8N=false)
 N8N_WEBHOOK_URL=https://n8n.thcloud.ai
 N8N_ANALYSIS_WEBHOOK_PATH=/webhook/voice-analysis
 N8N_CALLBACK_SECRET=your-shared-secret
@@ -662,13 +666,12 @@ NODE_ENV=development
 
 **Log events หลัก:**
 
-| Event                                    | เมื่อไหร่                       |
-| ---------------------------------------- | ------------------------------- |
-| `n8n:trigger:start` / `n8n:trigger:done` | ก่อนและหลังยิง workflow webhook |
-| `stt:start` / `stt:done`                 | ขั้น STT ภายใน n8n workflow     |
-| `llm:start` / `llm:done`                 | ขั้นวิเคราะห์ภายใน n8n workflow |
-| `analysis-callback:*`                    | callback route บันทึกผล/สถานะ   |
-| `delete-audio:*`                         | ขั้น cleanup หลังวิเคราะห์เสร็จ |
+| Event                    | เมื่อไหร่                         |
+| ------------------------ | --------------------------------- |
+| `stt:start` / `stt:done` | ขั้น STT ใน analysis pipeline     |
+| `llm:start` / `llm:done` | ขั้นวิเคราะห์ใน analysis pipeline |
+| `analysis-callback:*`    | callback route บันทึกผล/สถานะ     |
+| `delete-audio:*`         | ขั้น cleanup หลังวิเคราะห์เสร็จ   |
 
 เน้น log แบบ request/callback และ webhook lifecycle มากกว่า heartbeat ใน web process
 

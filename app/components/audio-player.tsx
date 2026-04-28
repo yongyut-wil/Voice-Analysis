@@ -5,7 +5,7 @@ interface AudioPlayerProps {
   title?: string;
 }
 
-export function AudioPlayer({ src, title }: AudioPlayerProps) {
+export function AudioPlayer({ src, title }: Readonly<AudioPlayerProps>) {
   const audioRef = useRef<HTMLAudioElement>(null);
 
   useEffect(() => {
@@ -19,6 +19,7 @@ export function AudioPlayer({ src, title }: AudioPlayerProps) {
       {title && <p className="text-muted-foreground mb-2 text-sm">{title}</p>}
       <audio ref={audioRef} controls className="w-full rounded-lg" preload="metadata">
         <source src={src} />
+        <track kind="captions" src="" label="Thai" srcLang="th" default />
         เบราว์เซอร์ของคุณไม่รองรับการเล่นเสียง
       </audio>
     </div>

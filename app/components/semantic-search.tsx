@@ -59,9 +59,10 @@ export function SemanticSearch() {
             <p className="text-muted-foreground py-6 text-center text-sm">ไม่พบผลลัพธ์</p>
           ) : (
             results.map((r) => (
-              <div
+              <button
                 key={r.chunk_id}
-                className="hover:bg-muted/50 cursor-pointer rounded-lg border p-3 transition-colors"
+                type="button"
+                className="hover:bg-muted/50 w-full cursor-pointer rounded-lg border p-3 text-left transition-colors"
                 onClick={() => r.audio_file_id && navigate(`/analyses/${r.audio_file_id}`)}
               >
                 <div className="mb-1 flex items-center gap-2">
@@ -76,7 +77,7 @@ export function SemanticSearch() {
                   </span>
                 </div>
                 <p className="line-clamp-2 text-sm">{r.chunk_content}</p>
-              </div>
+              </button>
             ))
           )}
         </div>

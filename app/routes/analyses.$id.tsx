@@ -9,7 +9,7 @@ import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
-import { AlertTriangle, ArrowLeft, Clock, FileAudio, Loader2, RefreshCw } from "lucide-react";
+import { AlertTriangle, ArrowLeft, FileAudio, Loader2, RefreshCw } from "lucide-react";
 import type { Emotion } from "~/types/analysis";
 
 export function meta({ data: loaderData }: Route.MetaArgs) {
@@ -46,7 +46,7 @@ function formatDuration(sec: number | null) {
   return `${m}:${String(s).padStart(2, "0")} นาที`;
 }
 
-function RetryButton({ audioFileId }: { audioFileId: string }) {
+function RetryButton({ audioFileId }: Readonly<{ audioFileId: string }>) {
   const navigate = useNavigate();
   const { revalidate } = useRevalidator();
   const [retrying, setRetrying] = useState(false);
@@ -69,19 +69,22 @@ function RetryButton({ audioFileId }: { audioFileId: string }) {
         const json = (await res.json()) as { error: string };
         throw new Error(json.error);
       }
-      pollRef.current = setInterval(async () => {
+      // revalidate ทันทีเพื่อเคลีย error message เก่าจากหน้าจอ
+      revalidate();
+      const pollId = setInterval(async () => {
         const statusRes = await fetch(`/api/status/${audioFileId}`);
         const json = (await statusRes.json()) as { status: string; analysisId: string | null };
         if (json.status === "done") {
-          clearInterval(pollRef.current!);
+          clearInterval(pollId);
           revalidate();
           setRetrying(false);
         } else if (json.status === "error") {
-          clearInterval(pollRef.current!);
+          clearInterval(pollId);
           setRetrying(false);
           revalidate();
         }
       }, 3000);
+      pollRef.current = pollId;
     } catch (err) {
       setRetrying(false);
       setError(err instanceof Error ? err.message : "เกิดข้อผิดพลาด");
@@ -110,6 +113,16 @@ function RetryButton({ audioFileId }: { audioFileId: string }) {
 
 export default function AnalysisDetail({ loaderData }: Route.ComponentProps) {
   const { file, analysis } = loaderData;
+  const { revalidate } = useRevalidator();
+
+  // Auto-poll เมื่อ status = processing
+  useEffect(() => {
+    if (file.status !== "processing") return;
+    const interval = setInterval(() => {
+      revalidate();
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [file.status, revalidate]);
 
   return (
     <main className="bg-background min-h-screen">
@@ -138,9 +151,11 @@ export default function AnalysisDetail({ loaderData }: Route.ComponentProps) {
         {/* Status: Processing */}
         {file.status === "processing" && (
           <Alert className="mb-6">
-            <Clock className="h-4 w-4" />
+            <Loader2 className="h-4 w-4 animate-spin" />
             <AlertTitle>กำลังวิเคราะห์...</AlertTitle>
-            <AlertDescription>ระบบกำลังประมวลผล กรุณารีเฟรชหน้านี้ในอีกสักครู่</AlertDescription>
+            <AlertDescription>
+              ระบบกำลังประมวลผล หน้านี้จะอัพเดทอัตโนมัติเมื่อเสร็จ
+            </AlertDescription>
           </Alert>
         )}
 

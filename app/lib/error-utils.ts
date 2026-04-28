@@ -1,5 +1,4 @@
 export function extractErrorMessage(err: unknown): string {
-  console.log("extractErrorMessage", err);
   if (err instanceof AggregateError) {
     const nested = err.errors
       .map((item) => extractErrorMessage(item))
@@ -12,12 +11,12 @@ export function extractErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message || err.name || "Unknown error";
   if (typeof err === "object" && err !== null) {
     // OpenAI SDK errors มี .message และอาจมี .body เป็น HTML
-    const e = err as Record<string, unknown>;
+    const e = err as { message?: string; body?: string; errors?: unknown[] };
     const msg = typeof e["message"] === "string" ? e["message"] : "";
     const body = typeof e["body"] === "string" ? e["body"] : "";
 
-    if (Array.isArray(e["errors"])) {
-      const nested = (e["errors"] as unknown[])
+    if (Array.isArray(e.errors)) {
+      const nested = e.errors
         .map((item) => extractErrorMessage(item))
         .filter((message) => message.trim().length > 0)
         .join(" ");
@@ -25,7 +24,7 @@ export function extractErrorMessage(err: unknown): string {
       if (nested) return nested;
     }
 
-    return body ? `${msg} ${body}`.trim() : msg || String(err) || "Unknown error";
+    return body ? `${msg} ${body}`.trim() : msg || JSON.stringify(err) || "Unknown error";
   }
 
   return String(err) || "Unknown error";

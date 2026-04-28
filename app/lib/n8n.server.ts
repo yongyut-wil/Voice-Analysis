@@ -6,11 +6,14 @@ function normalizeBaseUrl(value: string | undefined, envName: string): string {
   }
 
   const trimmed = value.trim();
-  const withProtocol = /^https?:\/\//i.test(trimmed)
-    ? trimmed
-    : trimmed.startsWith("localhost") || trimmed.startsWith("127.0.0.1")
-      ? `http://${trimmed}`
-      : `https://${trimmed}`;
+  let withProtocol: string;
+  if (/^https?:\/\//i.test(trimmed)) {
+    withProtocol = trimmed;
+  } else if (trimmed.startsWith("localhost") || trimmed.startsWith("127.0.0.1")) {
+    withProtocol = `http://${trimmed}`;
+  } else {
+    withProtocol = `https://${trimmed}`;
+  }
 
   try {
     return new URL(withProtocol).toString().replace(/\/$/, "");
@@ -30,7 +33,8 @@ export async function triggerAnalysis(
 ): Promise<void> {
   const webhookBaseUrl = normalizeBaseUrl(process.env.N8N_WEBHOOK_URL, "N8N_WEBHOOK_URL");
   const webhookPath = process.env.N8N_ANALYSIS_WEBHOOK_PATH ?? "/webhook/voice-analysis";
-  const webhookUrl = `${webhookBaseUrl}${webhookPath.startsWith("/") ? webhookPath : `/${webhookPath}`}`;
+  const normalizedPath = webhookPath.startsWith("/") ? webhookPath : "/" + webhookPath;
+  const webhookUrl = `${webhookBaseUrl}${normalizedPath}`;
   const sttProvider = "litellm";
   const callbackBaseUrl = normalizeBaseUrl(
     process.env.N8N_CALLBACK_BASE_URL ?? "http://localhost:3000",
