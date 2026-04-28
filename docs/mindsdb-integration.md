@@ -445,9 +445,22 @@ USING
 - ตอบเป็นภาษาไทยเสมอ
 - ระบุตัวเลขให้ชัดเจน เช่น จำนวนสาย, เปอร์เซ็นต์, คะแนนเฉลี่ย
 - ถ้าไม่มีข้อมูลให้บอกตรงๆ ว่าไม่พบข้อมูล
-- ใช้เฉพาะข้อมูล status = 'done' เมื่อวิเคราะห์ผลการสนทนา เพราะ status อื่นยังไม่มีผลวิเคราะห์";
+- ใช้เฉพาะข้อมูล status = 'done' เมื่อวิเคราะห์ผลการสนทนา เพราะ status อื่นยังไม่มีผลวิเคราะห์
+
+## คำที่มักพิมพ์ผิด
+- neutral มักถูกพิมพ์เป็น netural, nuteral, neutal
+- positive มักถูกพิมพ์เป็น positve, postive, possitive
+- negative มักถูกพิมพ์เป็น negitive, negtive, negativ
+กรุณาตีความคำที่พิมพ์ผิดให้ถูกต้องก่อนสร้าง SQL query";
 ```
 
+> **หมายเหตุเรื่องความคงที่:** MindsDB ไม่รองรับ `temperature` parameter ใน `model = {...}` inline config — agent จึงใช้ default temperature ของ LLM ซึ่งทำให้ผลลัพธ์อาจต่างกันเมื่อถามซ้ำ แอปจึงใช้ **answer caching** (LRU cache TTL 5 นาที) เป็นกลไกหลักในการรับประกันความคงที่แทน
+>
+> **App-level defense:** นอกจาก prompt แล้ว app ยังมี 2 ชั้นป้องกันใน `mindsdb.server.ts`:
+>
+> - **Typo normalization** — แก้คำผิดก่อนส่งให้ agent (เช่น netural → neutral)
+> - **Answer caching** — LRU cache TTL 5 นาที ถามซ้้าได้คำตอบเดิมทันที ไม่ต้องรอ LLM
+>
 > **ถ้าสร้างไปแล้วและต้องการแก้ prompt:** MindsDB ไม่มี `ALTER AGENT` ต้อง drop แล้วสร้างใหม่
 >
 > ```sql
@@ -545,12 +558,29 @@ export async function semanticSearchWithDetails(
 }
 
 // ส่งคำถามให้ Analytics Agent ตอบ
+// มี 2 ชั้นป้องกันก่อนส่งให้ agent:
+//   1. normalizeQuestion() — แก้ typo ของ domain terms (netural → neutral ฯลฯ)
+//   2. answerCache — LRU cache TTL 5 นาที ถามซ้้าได้คำตอบเดิมทันที
 export async function askAnalyticsAgent(question: string): Promise<string> {
+  // 1. แก้ typo ก่อน
+  const { normalized } = normalizeQuestion(question);
+
+  // 2. เช็ค cache
+  const cached = answerCache.get(normalized);
+  if (cached && Date.now() < cached.expiry) return cached.answer;
+
+  // 3. ถาม agent
   const rows = await mindsdbQuery(`
     SELECT answer FROM call_analytics_agent
-    WHERE question = ${JSON.stringify(question)}
+    WHERE question = ${JSON.stringify(normalized)}
   `);
-  return (rows[0] as { answer?: string })?.answer ?? "ไม่สามารถตอบได้";
+  const answer = (rows[0] as { answer?: string })?.answer ?? "ไม่สามารถตอบได้";
+
+  // 4. เก็บ cache (เฉพาะที่ตอบได้)
+  if (answer !== "ไม่สามารถตอบได้") {
+    answerCache.set(normalized, { answer, expiry: Date.now() + 5 * 60_000 });
+  }
+  return answer;
 }
 
 // ดึง satisfaction forecast จาก forecasting model

@@ -109,7 +109,6 @@
 - `emotion` เป็น lowercase ในชุด `positive | neutral | negative`
 - `emotion_score` อยู่ในช่วง 0.0–1.0
 - `satisfaction_score` อยู่ในช่วง 0–100
-- `temperature: 0.1` เพื่อผลที่สม่ำเสมอ
 - `max_tokens: 1024` เพื่อ summary ไม่ถูกตัดกลางคัน
 
 ### FR-5: Save Analysis Result

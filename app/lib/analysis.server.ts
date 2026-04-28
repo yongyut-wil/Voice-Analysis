@@ -53,13 +53,14 @@ export async function runAnalysis(
   logger.info("analysis:done", { audioFileId, total_ms: processingTime });
 
   // ลบไฟล์เสียงออกจาก MinIO หลัง analyze เสร็จ — ไม่จำเป็นต้องเก็บไว้อีกต่อไป
-  deleteAudio(filename)
-    .then(() => {})
-    .catch((err: unknown) => {
-      logger.warn("analysis:audio_delete_failed", {
-        audioFileId,
-        filename,
-        error: err instanceof Error ? err.message : String(err),
-      });
+  try {
+    await deleteAudio(filename);
+    logger.info("analysis:audio_deleted", { audioFileId, filename });
+  } catch (err: unknown) {
+    logger.warn("analysis:audio_delete_failed", {
+      audioFileId,
+      filename,
+      error: err instanceof Error ? err.message : String(err),
     });
+  }
 }

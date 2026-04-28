@@ -1,9 +1,10 @@
+name: sonarqube-voice-analysis-services
 services:
   sonarqube:
     image: sonarqube:community
     container_name: voice-analysis-sonarqube
     ports:
-      - "9000:9000"
+      - "9002:9000"
     environment:
       - SONAR_JDBC_URL=jdbc:postgresql://sonardb:5432/sonar
       - SONAR_JDBC_USERNAME=sonar
