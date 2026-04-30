@@ -31,4 +31,5 @@ COPY --from=build-env /app/build /app/build
 WORKDIR /app
 RUN chown -R appuser:appgroup /app
 USER appuser
+EXPOSE 3000
 CMD ["node_modules/.bin/react-router-serve", "./build/server/index.js"]
