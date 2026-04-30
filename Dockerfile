@@ -1,9 +1,10 @@
 FROM node:20-alpine AS development
 WORKDIR /app
 ENV HUSKY=0
-RUN corepack prepare yarn@stable --activate
 COPY package.json yarn.lock /app/
-RUN yarn install --frozen-lockfile
+RUN corepack enable && \
+    corepack prepare yarn@stable --activate && \
+    yarn install --frozen-lockfile
 COPY app/ /app/app/
 COPY public/ /app/public/
 COPY tsconfig.json vite.config.ts react-router.config.ts components.json /app/
@@ -14,19 +15,22 @@ FROM node:20-alpine AS build-env
 WORKDIR /app
 ENV HUSKY=0
 ENV NODE_ENV=production
-RUN corepack prepare yarn@stable --activate
 COPY package.json yarn.lock /app/
-RUN yarn install --frozen-lockfile
+RUN corepack enable && \
+    corepack prepare yarn@stable --activate && \
+    yarn install --frozen-lockfile && \
+    echo "Yarn version:" && yarn --version
 COPY app/ /app/app/
 COPY public/ /app/public/
 COPY tsconfig.json vite.config.ts react-router.config.ts components.json /app/
-RUN yarn build
+RUN corepack enable && yarn build
 
 FROM node:20-alpine AS production-dependencies-env
 WORKDIR /app
-RUN corepack prepare yarn@stable --activate
 COPY package.json yarn.lock /app/
-RUN HUSKY=0 yarn install --frozen-lockfile --production
+RUN corepack enable && \
+    corepack prepare yarn@stable --activate && \
+    HUSKY=0 yarn install --frozen-lockfile --production
 
 FROM node:20-alpine
 ENV NODE_ENV=production
