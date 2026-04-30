@@ -12,14 +12,13 @@ CMD ["yarn", "dev"]
 FROM node:20-alpine AS build-env
 WORKDIR /app
 ENV HUSKY=0
-ENV NODE_ENV=production
 COPY package.json yarn.lock /app/
 RUN corepack enable && yarn install --frozen-lockfile && \
     echo "Yarn version:" && yarn --version
 COPY app/ /app/app/
 COPY public/ /app/public/
 COPY tsconfig.json vite.config.ts react-router.config.ts components.json /app/
-RUN corepack enable && yarn --version && yarn build
+RUN NODE_ENV=production yarn build
 
 FROM node:20-alpine AS production-dependencies-env
 WORKDIR /app
