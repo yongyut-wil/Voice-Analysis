@@ -1,0 +1,81 @@
+name: voice-analysis
+
+services:
+
+  voice-app:
+    container_name: voice-app
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: production
+
+      # Supabase (external)
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+
+      # MinIO (external, SSL)
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      MINIO_PORT: ${MINIO_PORT:-443}
+      MINIO_USE_SSL: ${MINIO_USE_SSL:-true}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET_NAME: ${MINIO_BUCKET_NAME:-dev-voice-analysis}
+      MINIO_PUBLIC_BASE_URL: ${MINIO_PUBLIC_BASE_URL}
+
+      # LiteLLM (external proxy)
+      LITELLM_BASE_URL: ${LITELLM_BASE_URL}
+      LITELLM_API_KEY: ${LITELLM_API_KEY}
+      LITELLM_STT_MODEL: ${LITELLM_STT_MODEL:-gpt-4o-mini-transcribe}
+      LITELLM_ANALYSIS_MODEL: ${LITELLM_ANALYSIS_MODEL:-claude-sonnet-4-6}
+
+      # n8n (disabled — direct pipeline)
+      SKIP_N8N: ${SKIP_N8N:-true}
+      N8N_WEBHOOK_URL: ${N8N_WEBHOOK_URL}
+      N8N_ANALYSIS_WEBHOOK_PATH: ${N8N_ANALYSIS_WEBHOOK_PATH:-/webhook/voice-analysis}
+      N8N_CALLBACK_SECRET: ${N8N_CALLBACK_SECRET}
+      N8N_CALLBACK_BASE_URL: ${N8N_CALLBACK_BASE_URL}
+
+      # MindsDB (internal Docker DNS — ห้ามเปลี่ยน)
+      MINDSDB_HOST: http://mindsdb:47334
+      MINDSDB_USERNAME: ${MINDSDB_USERNAME:-admin}
+      MINDSDB_PASSWORD: ${MINDSDB_PASSWORD}
+      MINDSDB_API_KEY: ${MINDSDB_API_KEY:-}
+
+    ports:
+      - "3000:3000"
+    depends_on:
+      mindsdb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3000/api/health', (r) => r.statusCode < 500 ? process.exit(0) : process.exit(1))\""]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+
+  mindsdb:
+    image: mindsdb/mindsdb:latest
+    container_name: mindsdb
+    environment:
+      MINDSDB_STORAGE_DIR: /root/mindsdb_storage
+      OPENAI_API_KEY: ${LITELLM_API_KEY}
+      OPENAI_API_BASE: ${LITELLM_BASE_URL}
+      MINDSDB_USERNAME: ${MINDSDB_USERNAME:-admin}
+      MINDSDB_PASSWORD: ${MINDSDB_PASSWORD}
+    ports:
+      - "47334:47334"
+    volumes:
+      - mindsdb_data:/root/mindsdb_storage
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:47334/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+    restart: unless-stopped
+
+volumes:
+  mindsdb_data:
+    name: voice-analysis-mindsdb-data

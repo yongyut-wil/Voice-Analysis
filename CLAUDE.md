@@ -144,8 +144,7 @@ docs/
 
 ```
 SUPABASE_URL
-SUPABASE_ANON_KEY
-SUPABASE_SERVICE_ROLE_KEY
+SUPABASE_ANON_KEY                # ใช้เท่านั้น (app ไม่ใช้ SERVICE_ROLE_KEY)
 MINIO_ENDPOINT
 MINIO_PORT
 MINIO_USE_SSL
@@ -208,6 +207,35 @@ main ← staging ← develop ← yongyut/feat-xxx
 - Conventional commit types: `feat`, `fix`, `refactor`, `docs`, `chore`
 - PR flow: feature branch → develop → staging → main
 - main = production, deploy อัตโนมัติผ่าน GitHub Actions + Coolify
+
+## Deployment
+
+### Docker Compose Files
+
+| ไฟล์                             | ใช้สำหรับ                     | หมายเหตุ                                                                            |
+| -------------------------------- | ----------------------------- | ----------------------------------------------------------------------------------- |
+| `docker-compose-dev.yml`         | Local dev (สำหรับ developers) | เอา Supabase, MinIO, n8n, MindsDB มาใน compose                                      |
+| `docker-compose-sit.yml`         | SIT environment               | ใช้ external Supabase, หลัก MinIO เก่าใน compose                                    |
+| `docker-compose.demo-dev.yml`    | Demo dev (local)              | voice-app + postgres + mindsdb + external services                                  |
+| `docker-compose.demo-prod.yml`   | ⚠️ Broken                     | มี `depends_on: postgres` แต่ไม่มี service → ห้ามใช้                                |
+| **`docker-compose.coolify.yml`** | **Coolify Production**        | ✅ **Production-ready** — 2 services เท่านั้น: voice-app + mindsdb (ที่เป็นมาตรฐาน) |
+
+### Coolify Deployment (Production)
+
+สำหรับ deploy บน Coolify ใช้ `docker-compose.coolify.yml` กับ external services (Supabase, MinIO, LiteLLM, n8n)
+
+**คู่มือ Step-by-Step:** → `docs/coolify-quickstart.md`
+
+**ตัวอย่าง env vars:** → `.env.coolify.example`
+
+**สถาปัตยกรรมและ post-deployment MindsDB setup:** → `docs/coolify-deployment.md`
+
+**ข้อควรรู้:**
+
+- compose file ใช้ `SUPABASE_ANON_KEY` เท่านั้น (`SERVICE_ROLE_KEY` ไม่ต้อง)
+- MindsDB ใช้ named volume `voice-analysis-mindsdb-data` สำหรับ persistence
+- health check รอ MindsDB ให้ ready (`start_period: 90s`) ก่อน voice-app start
+- MindsDB post-deployment setup (semantic search + analytics agent) ต้องการ Postgres password จาก Supabase admin (optional)
 
 ## Rules สำหรับ Claude — Documentation Must Stay In Sync
 

@@ -1,6 +1,6 @@
 # Voice Analysis — Feature Status
 
-> อัพเดทล่าสุด: 2026-05-06
+> อัพเดทล่าสุด: 2026-04-30
 > ไฟล์นี้ track สถานะ feature จริงของระบบ ใช้เป็น reference ก่อนเริ่ม session ใหม่
 
 ---
@@ -69,27 +69,84 @@ USING
 
 ---
 
+## Auth 🔄 In Progress
+
+| Feature                                      | ไฟล์                                   | สถานะ        | หมายเหตุ                               |
+| -------------------------------------------- | -------------------------------------- | ------------ | -------------------------------------- |
+| `@supabase/ssr` install                      | `package.json`                         | ✅ Done      | v0.10.2                                |
+| `createSupabaseServerClient` + `requireAuth` | `app/lib/auth.server.ts`               | ✅ Done      | SSR cookie session                     |
+| Login page (Email/Password)                  | `app/routes/auth.login.tsx`            | ✅ Done      | พร้อม SSO slot สำหรับ Phase 2          |
+| OAuth callback handler                       | `app/routes/auth.callback.tsx`         | ✅ Done      | รองรับทั้ง password + OAuth            |
+| Logout                                       | `app/routes/auth.logout.tsx`           | ✅ Done      | POST action + clear cookie             |
+| Route protection                             | `analyses.tsx`, `analyses.$id.tsx`     | ✅ Done      | `requireAuth()` + logout button        |
+| Database migration (RLS)                     | `supabase/migrations/002_add_auth.sql` | ❌ ยังไม่รัน | ดู `docs/auth-migration.md`            |
+| Authentik OIDC Provider setup                | Authentik Admin + GoTrue env vars      | ❌ Phase 2   | ดู `docs/authentik-sso-integration.md` |
+| Enable SSO button ใน login page              | `app/routes/auth.login.tsx`            | ❌ Phase 2   | uncomment เมื่อ Authentik พร้อม        |
+
+> ดูรายละเอียดทั้งหมดได้ที่ `docs/authentik-sso-integration.md`
+
 ## Pending / In Progress 🔄
 
-ไม่มี
+ไม่มี (นอกจาก Auth ด้านบน)
 
 ---
 
 ## ยังไม่ได้ทำ ❌
 
-| Feature                               | เหตุผลที่รอ                                            |
-| ------------------------------------- | ------------------------------------------------------ |
-| Auth (Supabase Auth)                  | ดู `docs/auth-migration.md`                            |
-| MindsDB Forecasting                   | ต้องมีข้อมูล 30+ วันก่อน                               |
-| MindsDB Batch Re-analysis (AI Tables) | ยังไม่ได้ prioritize                                   |
-| Audio Playback ใน UI                  | `audio-player.tsx` มีอยู่แล้วแต่ไฟล์ถูกลบหลัง analysis |
+| Feature                               | เหตุผลที่รอ                                                                                               |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| MindsDB Forecasting                   | ต้องมีข้อมูล 30+ วันก่อน                                                                                  |
+| MindsDB Batch Re-analysis (AI Tables) | ยังไม่ได้ prioritize                                                                                      |
+| Audio Playback ใน UI                  | `audio-player.tsx` มีอยู่แล้วแต่ไฟล์ถูกลบหลัง analysis                                                    |
+| Analytics Chat — แปล column headers   | แนวทาง: เพิ่ม `COLUMN_LABELS` map ใน `analytics-chat.tsx` แล้วใช้ตอน render `<th>` — ดูรายละเอียดด้านล่าง |
+
+### แนวทาง: แปล column headers ใน Analytics Chat
+
+เมื่อ MindsDB agent ตอบกลับเป็น markdown table เช่น `illegal_call_count`, `avg_satisfaction_score`
+ต้องการ map เป็นชื่อภาษาไทยหรือชื่อที่อ่านง่ายขึ้น
+
+**ไฟล์ที่ต้องแก้:** `app/components/analytics-chat.tsx`
+
+เพิ่ม `COLUMN_LABELS` map ก่อน `renderMarkdownContent`:
+
+```ts
+const COLUMN_LABELS: Record<string, string> = {
+  avg_satisfaction_score: "คะแนนความพึงพอใจเฉลี่ย",
+  total_calls: "จำนวนสายทั้งหมด",
+  illegal_call_count: "สายผิดกฎหมาย",
+  illegal_count: "สายผิดกฎหมาย",
+  negative_count: "สาย emotion ลบ",
+  positive_count: "สาย emotion บวก",
+  neutral_count: "สาย emotion กลาง",
+  call_count: "จำนวนสาย",
+  count: "จำนวน",
+  audio_file_id: "ไฟล์",
+  original_name: "ชื่อไฟล์",
+  emotion: "อารมณ์",
+  satisfaction_score: "คะแนนความพึงพอใจ",
+  illegal_detected: "ตรวจพบผิดกฎหมาย",
+  created_at: "วันที่",
+  status: "สถานะ",
+};
+```
+
+แล้วใน `renderMarkdownContent` ตอน render `<th>`:
+
+```tsx
+// จาก
+<th key={i}>{h}</th>
+// เป็น
+<th key={i}>{COLUMN_LABELS[h.toLowerCase()] ?? h}</th>
+```
+
+Column ที่ไม่มีใน map จะแสดง original name ตามเดิม
 
 ---
 
 ## Known Issues / Limitations
 
-| ปัญหา                                                     | สถานะ                         |
-| --------------------------------------------------------- | ----------------------------- |
-| Cloudflare ตัด connection ~60s — ไฟล์ >5MB มักจะ fail STT | Known, no fix yet             |
-| `/analyses` ไม่ real-time — ต้อง refresh เอง              | Known, won't fix (MVP)        |
-| ไม่มี auth — ทุกคนที่เข้า URL เห็นข้อมูลทั้งหมด           | Known, ดู auth-migration plan |
+| ปัญหา                                                     | สถานะ                                              |
+| --------------------------------------------------------- | -------------------------------------------------- |
+| Cloudflare ตัด connection ~60s — ไฟล์ >5MB มักจะ fail STT | Known, no fix yet                                  |
+| `/analyses` ไม่ real-time — ต้อง refresh เอง              | Known, won't fix (MVP)                             |
+| ไม่มี auth — ทุกคนที่เข้า URL เห็นข้อมูลทั้งหมด           | 🔄 Auth Phase 1 implement แล้ว รอรัน RLS migration |
