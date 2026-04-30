@@ -15,14 +15,8 @@ WORKDIR /app
 ENV HUSKY=0
 ENV NODE_ENV=development
 COPY package.json yarn.lock /app/
-
-# 🔍 แยกเป็น 3 RUN เพื่อดูว่าขั้นตอนไหน fail จริงๆ
-RUN echo "=== Step 1: node version ===" && node --version && npm --version
-RUN echo "=== Step 2: corepack enable ===" && corepack enable && echo "corepack OK"
-RUN echo "=== Step 3: yarn install ===" && \
-    NODE_ENV=development HUSKY=0 yarn install --frozen-lockfile 2>&1 | tee /tmp/yarn.log || \
-    (cat /tmp/yarn.log && exit 1)
-
+RUN NODE_ENV=development corepack enable && \
+    NODE_ENV=development yarn install --frozen-lockfile
 COPY app/ /app/app/
 COPY public/ /app/public/
 COPY tsconfig.json vite.config.ts react-router.config.ts components.json /app/
