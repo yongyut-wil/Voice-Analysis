@@ -1,7 +1,8 @@
 import type { Route } from "./+types/home";
 import { lazy, Suspense } from "react";
-import { Link } from "react-router";
+import { data, Link } from "react-router";
 import { AudioLines, BrainCircuit, FileText, ShieldAlert, Loader2 } from "lucide-react";
+import { requireAuth } from "~/lib/auth.server";
 
 const AudioUploader = lazy(() =>
   import("~/components/audio-uploader").then((m) => ({ default: m.AudioUploader }))
@@ -12,6 +13,11 @@ export function meta(_: Route.MetaArgs) {
     { title: "Voice Analysis — วิเคราะห์เสียง" },
     { name: "description", content: "อัพโหลดไฟล์เสียงเพื่อถอดข้อความและวิเคราะห์อารมณ์" },
   ];
+}
+
+export async function loader({ request }: Route.LoaderArgs) {
+  const { user, responseHeaders } = await requireAuth(request);
+  return data({ user }, { headers: responseHeaders });
 }
 
 export default function Home() {

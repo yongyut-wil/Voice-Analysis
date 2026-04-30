@@ -9,6 +9,58 @@ interface Message {
   content: string;
 }
 
+function renderMarkdownContent(content: string) {
+  // Check if content is a markdown table
+  if (content.includes("|")) {
+    const lines = content.split("\n").filter((l) => l.trim());
+    if (lines.length >= 2 && lines[0].includes("|") && lines[1].includes("-")) {
+      const headerRow = lines[0]
+        .split("|")
+        .map((c) => c.trim())
+        .filter(Boolean);
+      const dataRows = lines
+        .slice(2)
+        .filter((l) => l.includes("|"))
+        .map((l) =>
+          l
+            .split("|")
+            .map((c) => c.trim())
+            .filter(Boolean)
+        );
+
+      return (
+        <div className="overflow-x-auto">
+          <table className="text-sm">
+            <thead>
+              <tr className="border-b">
+                {headerRow.map((h, i) => (
+                  <th key={i} className="px-3 py-2 text-left font-semibold">
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {dataRows.map((row, i) => (
+                <tr key={i} className="border-b last:border-0">
+                  {row.map((cell, j) => (
+                    <td key={j} className="px-3 py-2">
+                      {cell}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+    }
+  }
+
+  // Default: render as plain text with line breaks preserved
+  return <div className="break-words whitespace-pre-wrap">{content}</div>;
+}
+
 const SUGGESTIONS = [
   "สายที่ emotion เป็น negative มีกี่สาย?",
   "satisfaction score เฉลี่ยเป็นเท่าไหร่?",
@@ -108,7 +160,7 @@ export function AnalyticsChat() {
                     : "bg-muted rounded-tl-none"
                 }`}
               >
-                {m.content}
+                {renderMarkdownContent(m.content)}
               </div>
             </div>
           ))}

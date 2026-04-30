@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "build": "react-router build",
-    "dev": "react-router dev --mode dev",
+    "dev": "react-router dev",
+    "dev:secrets": "infisical run --env=dev -- yarn dev",
     "start": "react-router-serve ./build/server/index.js",
     "typecheck": "react-router typegen && tsc",
     "prepare": "husky"
@@ -13,6 +14,7 @@
     "@base-ui/react": "^1.3.0",
     "@react-router/node": "7.14.0",
     "@react-router/serve": "7.14.0",
+    "@supabase/ssr": "^0.10.2",
     "@supabase/supabase-js": "^2.103.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

@@ -2,6 +2,7 @@ import type { Route } from "./+types/analyses.$id";
 import { Link, data, useNavigate, useRevalidator } from "react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getAudioFileById } from "~/lib/supabase.server";
+import { requireAuth } from "~/lib/auth.server";
 import { cleanErrorMessage } from "~/lib/error-utils";
 import { EmotionBadge } from "~/components/emotion-badge";
 import { Progress } from "~/components/ui/progress";
@@ -17,7 +18,8 @@ export function meta({ data: loaderData }: Route.MetaArgs) {
   return [{ title: `${name} — Voice Analysis` }];
 }
 
-export async function loader({ params }: Route.LoaderArgs) {
+export async function loader({ params, request }: Route.LoaderArgs) {
+  const { responseHeaders } = await requireAuth(request);
   const file = await getAudioFileById(params.id);
   if (!file) throw data("ไม่พบไฟล์", { status: 404 });
 
@@ -26,7 +28,7 @@ export async function loader({ params }: Route.LoaderArgs) {
     ...file,
     error_message: file.error_message ? cleanErrorMessage(file.error_message) : null,
   };
-  return { file: cleanedFile, analysis };
+  return data({ file: cleanedFile, analysis }, { headers: responseHeaders });
 }
 
 function formatDate(iso: string) {

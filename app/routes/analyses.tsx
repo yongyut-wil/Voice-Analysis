@@ -1,7 +1,8 @@
 import type { Route } from "./+types/analyses";
-import { Link } from "react-router";
-import { ArrowLeft, AlertTriangle, Search, MessageSquare } from "lucide-react";
+import { data, Link, Form } from "react-router";
+import { ArrowLeft, AlertTriangle, Search, MessageSquare, LogOut } from "lucide-react";
 import { getAudioFiles } from "~/lib/supabase.server";
+import { requireAuth } from "~/lib/auth.server";
 import { EmotionBadge } from "~/components/emotion-badge";
 import { SemanticSearch } from "~/components/semantic-search";
 import { AnalyticsChat } from "~/components/analytics-chat";
@@ -21,10 +22,11 @@ export function meta(_: Route.MetaArgs) {
   return [{ title: "ประวัติการวิเคราะห์ — Voice Analysis" }];
 }
 
-export async function loader(_: Route.LoaderArgs) {
+export async function loader({ request }: Route.LoaderArgs) {
+  const { user, responseHeaders } = await requireAuth(request);
   const files = await getAudioFiles();
   const mindsdbEnabled = !!process.env.MINDSDB_HOST;
-  return { files, mindsdbEnabled };
+  return data({ files, mindsdbEnabled, user }, { headers: responseHeaders });
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -55,18 +57,35 @@ function formatSize(bytes: number | null) {
 }
 
 export default function Analyses({ loaderData }: Route.ComponentProps) {
-  const { files, mindsdbEnabled } = loaderData;
+  const { files, mindsdbEnabled, user } = loaderData;
 
   return (
     <main className="bg-background min-h-screen">
       <div className="container mx-auto px-4 py-12">
-        <Link
-          to="/"
-          className="text-muted-foreground hover:text-foreground mb-6 flex w-fit items-center gap-1 text-sm transition-colors"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          กลับหน้าหลัก
-        </Link>
+        {/* Top bar */}
+        <div className="mb-6 flex items-center justify-between">
+          <Link
+            to="/"
+            className="text-muted-foreground hover:text-foreground flex w-fit items-center gap-1 text-sm transition-colors"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            กลับหน้าหลัก
+          </Link>
+          <div className="flex items-center gap-3">
+            <span className="text-muted-foreground hidden text-xs sm:block">{user.email}</span>
+            <Form method="post" action="/auth/logout">
+              <button
+                type="submit"
+                id="logout-button"
+                title="ออกจากระบบ"
+                className="text-muted-foreground hover:text-foreground flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30"
+              >
+                <LogOut className="h-4 w-4" />
+                ออกจากระบบ
+              </button>
+            </Form>
+          </div>
+        </div>
         <div className="mb-8 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold">ประวัติการวิเคราะห์</h1>
