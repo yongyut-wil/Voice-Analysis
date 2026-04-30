@@ -48,7 +48,7 @@ services:
       mindsdb:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3000/api/health', (r) => r.statusCode < 500 ? process.exit(0) : process.exit(1))\""]
+      test: [ "CMD-SHELL", "node -e \"require('http').get('http://localhost:3000/api/health', (r) => r.statusCode < 500 ? process.exit(0) : process.exit(1))\"" ]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -56,20 +56,23 @@ services:
     restart: unless-stopped
 
   mindsdb:
-    image: mindsdb/mindsdb:latest
+    image: 'mindsdb/mindsdb:latest'
     container_name: mindsdb
     environment:
       MINDSDB_STORAGE_DIR: /root/mindsdb_storage
-      OPENAI_API_KEY: ${LITELLM_API_KEY}
-      OPENAI_API_BASE: ${LITELLM_BASE_URL}
-      MINDSDB_USERNAME: ${MINDSDB_USERNAME:-admin}
-      MINDSDB_PASSWORD: ${MINDSDB_PASSWORD}
-    ports:
-      - "47334:47334"
+      OPENAI_API_KEY: '${LITELLM_API_KEY}'
+      OPENAI_API_BASE: '${LITELLM_BASE_URL}'
+      MINDSDB_USERNAME: '${MINDSDB_USERNAME:-admin}'
+      MINDSDB_PASSWORD: '${MINDSDB_PASSWORD}'
+    # ลบ ports ออก
     volumes:
-      - mindsdb_data:/root/mindsdb_storage
+      - 'mindsdb_data:/root/mindsdb_storage'
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:47334/api/status"]
+      test:
+        - CMD
+        - curl
+        - '-f'
+        - 'http://localhost:47334/api/status'
       interval: 30s
       timeout: 10s
       retries: 5
