@@ -16,25 +16,18 @@ ENV HUSKY=0
 ENV NODE_ENV=development
 COPY package.json yarn.lock /app/
 RUN NODE_ENV=development corepack enable && \
-    NODE_ENV=development yarn install --frozen-lockfile --verbose && \
-    echo "Yarn version:" && yarn --version
+    NODE_ENV=development yarn install --frozen-lockfile
 COPY app/ /app/app/
 COPY public/ /app/public/
 COPY tsconfig.json vite.config.ts react-router.config.ts components.json /app/
 RUN NODE_ENV=production yarn build
 
-FROM node:20-alpine AS production-dependencies-env
-WORKDIR /app
-COPY package.json yarn.lock /app/
-# ✅ เปลี่ยนมาใช้ npm ci แทน — ไม่ต้องพึ่ง corepack/yarn berry
-# npm มาพร้อม node:20-alpine อยู่แล้ว ไม่มีปัญหา ARG injection
-RUN npm ci --omit=dev --ignore-scripts
-
 FROM node:20-alpine
 ENV NODE_ENV=production
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 COPY package.json /app/
-COPY --from=production-dependencies-env /app/node_modules /app/node_modules
+# ✅ copy node_modules จาก build-env โดยตรง ไม่ต้องติดตั้งใหม่
+COPY --from=build-env /app/node_modules /app/node_modules
 COPY --from=build-env /app/build /app/build
 WORKDIR /app
 RUN chown -R appuser:appgroup /app
