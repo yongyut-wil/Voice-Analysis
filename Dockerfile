@@ -12,6 +12,7 @@ CMD ["yarn", "dev"]
 FROM node:20-alpine AS build-env
 WORKDIR /app
 ENV HUSKY=0
+ENV NODE_ENV=development
 COPY package.json yarn.lock /app/
 RUN corepack enable && yarn install --frozen-lockfile && \
     echo "Yarn version:" && yarn --version
@@ -22,6 +23,8 @@ RUN NODE_ENV=production yarn build
 
 FROM node:20-alpine AS production-dependencies-env
 WORKDIR /app
+# ✅ เช่นกัน ต้อง override ด้วย
+ENV NODE_ENV=development
 COPY package.json yarn.lock /app/
 RUN corepack enable && HUSKY=0 yarn install --frozen-lockfile
 
