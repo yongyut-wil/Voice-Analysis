@@ -1,7 +1,7 @@
 FROM node:20-alpine AS development
 WORKDIR /app
 ENV HUSKY=0
-RUN apk add --no-cache yarn
+RUN corepack prepare yarn@stable --activate
 COPY package.json yarn.lock /app/
 RUN yarn install --frozen-lockfile
 COPY app/ /app/app/
@@ -14,7 +14,7 @@ FROM node:20-alpine AS build-env
 WORKDIR /app
 ENV HUSKY=0
 ENV NODE_ENV=production
-RUN apk add --no-cache yarn
+RUN corepack prepare yarn@stable --activate
 COPY package.json yarn.lock /app/
 RUN yarn install --frozen-lockfile
 COPY app/ /app/app/
@@ -24,7 +24,7 @@ RUN yarn build
 
 FROM node:20-alpine AS production-dependencies-env
 WORKDIR /app
-RUN apk add --no-cache yarn
+RUN corepack prepare yarn@stable --activate
 COPY package.json yarn.lock /app/
 RUN HUSKY=0 yarn install --frozen-lockfile --production
 
