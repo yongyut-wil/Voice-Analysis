@@ -1,6 +1,7 @@
 FROM node:20-alpine AS development
 WORKDIR /app
 ENV HUSKY=0
+ENV NODE_ENV=development
 COPY package.json yarn.lock /app/
 RUN corepack enable && yarn install --frozen-lockfile
 COPY app/ /app/app/
