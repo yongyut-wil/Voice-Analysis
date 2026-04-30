@@ -42,8 +42,8 @@ services:
       MINDSDB_PASSWORD: ${MINDSDB_PASSWORD}
       MINDSDB_API_KEY: ${MINDSDB_API_KEY:-}
 
-    ports:
-      - "3000:3000"
+    # ports:
+    #   - "3000:3000"
     depends_on:
       mindsdb:
         condition: service_healthy
