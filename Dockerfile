@@ -15,7 +15,10 @@ WORKDIR /app
 ENV HUSKY=0
 ENV NODE_ENV=development
 COPY package.json yarn.lock /app/
-RUN corepack enable && yarn install --frozen-lockfile && \
+# ✅ inline shell override = priority สูงสุด ชนะ ARG, ENV, --build-arg ทุกอย่าง
+# ✅ เพิ่ม --verbose เพื่อดู error จริง
+RUN NODE_ENV=development corepack enable && \
+    NODE_ENV=development yarn install --frozen-lockfile --verbose && \
     echo "Yarn version:" && yarn --version
 COPY app/ /app/app/
 COPY public/ /app/public/
@@ -24,10 +27,10 @@ RUN NODE_ENV=production yarn build
 
 FROM node:20-alpine AS production-dependencies-env
 WORKDIR /app
-# ✅ เช่นกัน ต้อง override ด้วย
 ENV NODE_ENV=development
 COPY package.json yarn.lock /app/
-RUN corepack enable && HUSKY=0 yarn install --frozen-lockfile
+RUN NODE_ENV=development corepack enable && \
+    NODE_ENV=development HUSKY=0 yarn install --frozen-lockfile
 
 FROM node:20-alpine
 ENV NODE_ENV=production
