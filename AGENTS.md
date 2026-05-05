@@ -40,7 +40,7 @@ Do not follow the default `README.md` commands if they conflict with the project
 
 ## Database and Data Rules
 
-Main tables:
+Main tables (schema: `public`):
 
 - `audio_files`
 - `analysis_results`
@@ -52,11 +52,17 @@ Important invariants:
 - `analysis_results` includes `summary` and `stt_model_used`
 - Use Supabase service-role access only on the server side
 
+### Schema Source of Truth
+
+**`supabase/schema.sql` is the single canonical schema file** — it contains every table, column, index, and policy in one place and is safe to run from scratch.
+
 For schema updates:
 
 - There is no local migration runner in normal app flow
-- Schema changes are typically applied directly in Supabase
-- Reflect any schema change in server code and shared types when needed
+- Apply SQL directly via **Supabase Dashboard → SQL Editor**
+- **After any schema change** (add column, new table, new index, new policy), you MUST also update `supabase/schema.sql` to reflect the new state
+- The individual `supabase/migrations/` files remain as historical audit trail — do not delete them, but `schema.sql` is the go-to reference
+- Reflect any schema change in server code and shared types (`app/types/analysis.ts`) when needed
 
 ## AI Pipeline Rules
 

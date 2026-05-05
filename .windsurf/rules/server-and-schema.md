@@ -29,4 +29,4 @@ globs: app/lib/**/*.ts,app/types/**/*.ts
 
 - MindsDB returns columnar format: `{ columns: [...], data: [[...], ...] }`. Use `mindsdbQuery()` to convert to row objects.
 - MindsDB Agent (`call_analytics_agent`) returns 3 formats: scalar, `[[value]]`, or `null`. The existing `askAnalyticsAgent()` handles all three.
-- Knowledge Base (`call_transcriptions`) splits long transcriptions into multiple chunks. Always deduplicate results by `audio_file_id`.
+- Knowledge Base (`call_kb`) splits long transcriptions into multiple chunks. Always deduplicate results by `audio_file_id`.

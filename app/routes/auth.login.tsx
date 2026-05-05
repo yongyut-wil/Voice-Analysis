@@ -170,7 +170,6 @@ export default function LoginPage() {
             </button>
           </Form>
 
-          {/* ── Phase 2: SSO divider (uncomment เมื่อ Authentik พร้อม) ────────────
           <div className="relative my-5">
             <div className="absolute inset-0 flex items-center">
               <span className="border-border w-full border-t" />
@@ -188,7 +187,6 @@ export default function LoginPage() {
               เข้าสู่ระบบด้วย Authentik SSO
             </button>
           </Form>
-          ──────────────────────────────────────────────────────────────────── */}
         </div>
       </div>
     </main>

@@ -14,8 +14,10 @@ export function createSupabaseServerClient(request: Request, responseHeaders: He
     throw new Error("Missing SUPABASE_URL or SUPABASE_ANON_KEY");
   }
 
+  const schema = process.env.SUPABASE_DB_SCHEMA ?? "public";
+
   return createServerClient(supabaseUrl, supabaseAnonKey, {
-    db: { schema: "voice_analysis" },
+    db: { schema },
     cookies: {
       getAll() {
         return parseCookieHeader(request.headers.get("Cookie") ?? "").filter(

@@ -2,6 +2,7 @@ import { data } from "react-router";
 import { cleanErrorMessage, extractErrorMessage } from "~/lib/error-utils";
 import { uploadAudio } from "~/lib/minio.server";
 import { createAudioFile } from "~/lib/supabase.server";
+import { getOptionalUser } from "~/lib/auth.server";
 import { logger } from "~/lib/logger";
 import type { Route } from "./+types/upload";
 
@@ -31,6 +32,9 @@ export async function action({ request }: Route.ActionArgs) {
     return data({ error: "Method not allowed" }, { status: 405 });
   }
 
+  // อ่าน session เพื่อ attach user_id — ใช้ getOptionalUser (ไม่ redirect ถ้าไม่ login)
+  const { user } = await getOptionalUser(request);
+
   let formData: FormData;
   try {
     formData = await request.formData();
@@ -54,7 +58,12 @@ export async function action({ request }: Route.ActionArgs) {
 
   const buffer = Buffer.from(await file.arrayBuffer());
 
-  logger.info("upload:start", { name: file.name, size: file.size, mime: mimeType });
+  logger.info("upload:start", {
+    name: file.name,
+    size: file.size,
+    mime: mimeType,
+    userId: user?.id ?? "anonymous",
+  });
 
   try {
     const { filename, storageUrl } = await uploadAudio(buffer, file.name, mimeType);
@@ -67,9 +76,15 @@ export async function action({ request }: Route.ActionArgs) {
       mime_type: mimeType,
       storage_url: storageUrl,
       status: "pending",
+      user_id: user?.id ?? null,
     });
 
-    logger.info("upload:done", { audioFileId: audioFile.id, filename, name: file.name });
+    logger.info("upload:done", {
+      audioFileId: audioFile.id,
+      filename,
+      name: file.name,
+      userId: user?.id ?? "anonymous",
+    });
 
     return data({ audioFileId: audioFile.id, filename }, { status: 201 });
   } catch (err) {

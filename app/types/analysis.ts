@@ -3,6 +3,7 @@ export type Emotion = "neutral" | "positive" | "negative";
 
 export interface AudioFile {
   id: string;
+  user_id: string | null;
   filename: string;
   original_name: string;
   file_size: number | null;

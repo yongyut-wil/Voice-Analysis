@@ -11,12 +11,15 @@ export function extractErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message || err.name || "Unknown error";
   if (typeof err === "object" && err !== null) {
     // OpenAI SDK errors มี .message และอาจมี .body เป็น HTML
-    const e = err as { message?: string; body?: string; errors?: unknown[] };
+    // ใช้ Object.getOwnPropertyNames เพื่อจับ non-enumerable props (เช่น PostgrestError จาก Supabase)
+    const e = err as Record<string, unknown>;
     const msg = typeof e["message"] === "string" ? e["message"] : "";
     const body = typeof e["body"] === "string" ? e["body"] : "";
+    const code = typeof e["code"] === "string" ? e["code"] : "";
+    const details = typeof e["details"] === "string" ? e["details"] : "";
 
-    if (Array.isArray(e.errors)) {
-      const nested = e.errors
+    if (Array.isArray(e["errors"])) {
+      const nested = (e["errors"] as unknown[])
         .map((item) => extractErrorMessage(item))
         .filter((message) => message.trim().length > 0)
         .join(" ");
@@ -24,7 +27,25 @@ export function extractErrorMessage(err: unknown): string {
       if (nested) return nested;
     }
 
-    return body ? `${msg} ${body}`.trim() : msg || JSON.stringify(err) || "Unknown error";
+    if (body) return `${msg} ${body}`.trim();
+    if (msg) return code ? `[${code}] ${msg}` : msg;
+
+    // Supabase PostgrestError: properties อาจเป็น non-enumerable → ใช้ getOwnPropertyNames
+    const allKeys = Object.getOwnPropertyNames(err);
+    const fromAllProps = allKeys
+      .map((k) => {
+        const v = (err as Record<string, unknown>)[k];
+        return typeof v === "string" && v ? `${k}: ${v}` : "";
+      })
+      .filter(Boolean)
+      .join(", ");
+
+    return (
+      fromAllProps ||
+      details ||
+      JSON.stringify(err, Object.getOwnPropertyNames(err)) ||
+      "Unknown error"
+    );
   }
 
   return String(err) || "Unknown error";

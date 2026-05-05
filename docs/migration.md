@@ -83,16 +83,34 @@ NODE_ENV=development
 
 ---
 
-## ขั้นตอนที่ 3 — Database Migration (Supabase)
+## ขั้นตอนที่ 3 — Expose Schema ใน Supabase
 
-### 3.1 Run 001_initial.sql
+> ⚠️ **ต้องทำก่อน run migrations** — โปรเจกต์นี้ใช้ schema `voice_analysis` ไม่ใช่ `public`
+
+1. ไปที่ **Settings → API**
+2. หาส่วน **"Exposed schemas"** (หรือ **DB Schemas**)
+3. เพิ่ม `voice_analysis` ต่อท้าย: `public, voice_analysis`
+4. บันทึก
+
+ถ้าไม่ทำขั้นตอนนี้จะเกิด error: `PGRST106: The schema must be one of the following`
+
+---
+
+## ขั้นตอนที่ 4 — Database Migration (Supabase)
+
+> ดูรายละเอียดและ SQL ครบถ้วนได้ที่ **`docs/supabase-setup-commands.md`**
+
+### 4.1 Run 001_initial.sql
 
 1. เข้า Supabase Dashboard → **SQL Editor**
 2. คลิก **New query**
 3. วาง SQL จากไฟล์ `supabase/migrations/001_initial.sql`:
 
 ```sql
-CREATE TABLE IF NOT EXISTS audio_files (
+-- สร้าง schema และตารางหลัก
+CREATE SCHEMA IF NOT EXISTS voice_analysis;
+
+CREATE TABLE IF NOT EXISTS voice_analysis.audio_files (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   filename      TEXT NOT NULL,
   original_name TEXT NOT NULL,
@@ -106,9 +124,9 @@ CREATE TABLE IF NOT EXISTS audio_files (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS analysis_results (
+CREATE TABLE IF NOT EXISTS voice_analysis.analysis_results (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  audio_file_id      UUID NOT NULL REFERENCES audio_files(id) ON DELETE CASCADE,
+  audio_file_id      UUID NOT NULL REFERENCES voice_analysis.audio_files(id) ON DELETE CASCADE,
   transcription      TEXT,
   emotion            TEXT CHECK (emotion IN ('neutral', 'positive', 'negative')),
   emotion_score      FLOAT CHECK (emotion_score BETWEEN 0 AND 1),
@@ -120,34 +138,55 @@ CREATE TABLE IF NOT EXISTS analysis_results (
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_audio_files_status     ON audio_files(status);
-CREATE INDEX IF NOT EXISTS idx_audio_files_created_at ON audio_files(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_analysis_audio_file_id ON analysis_results(audio_file_id);
+CREATE INDEX IF NOT EXISTS idx_audio_files_status     ON voice_analysis.audio_files(status);
+CREATE INDEX IF NOT EXISTS idx_audio_files_created_at ON voice_analysis.audio_files(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_analysis_audio_file_id ON voice_analysis.analysis_results(audio_file_id);
 ```
 
 4. คลิก **Run** (หรือ `Ctrl+Enter`)
-5. ตรวจสอบว่า **Table Editor** เห็น `audio_files` และ `analysis_results`
+5. ตรวจสอบว่า **Table Editor** เห็น `audio_files` และ `analysis_results` ใต้ schema `voice_analysis`
 
-### 3.2 Run 002_add_summary_stt_model.sql
+### 4.2 Run 002_add_summary_stt_model.sql
 
 1. คลิก **New query**
 2. วาง SQL จากไฟล์ `supabase/migrations/002_add_summary_stt_model.sql`:
 
 ```sql
-ALTER TABLE analysis_results
-  ADD COLUMN IF NOT EXISTS summary       TEXT,
+ALTER TABLE voice_analysis.analysis_results
+  ADD COLUMN IF NOT EXISTS summary        TEXT,
   ADD COLUMN IF NOT EXISTS stt_model_used TEXT;
 ```
 
 3. คลิก **Run**
 
-### 3.3 ตรวจสอบหลัง Run
+### 4.3 Run 003_add_n8n_execution_id.sql
 
-ไปที่ **Table Editor** ใน Supabase — ควรเห็น:
+```sql
+ALTER TABLE voice_analysis.audio_files
+  ADD COLUMN IF NOT EXISTS n8n_execution_id TEXT;
+```
+
+### 4.4 Grant Permissions
+
+```sql
+-- Grant permissions บน voice_analysis schema ให้ PostgREST roles
+GRANT USAGE ON SCHEMA voice_analysis TO anon, authenticated, service_role;
+GRANT ALL ON ALL TABLES IN SCHEMA voice_analysis TO anon, authenticated, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA voice_analysis TO anon, authenticated, service_role;
+
+ALTER DEFAULT PRIVILEGES IN SCHEMA voice_analysis
+  GRANT ALL ON TABLES TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA voice_analysis
+  GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
+```
+
+### 4.5 ตรวจสอบหลัง Run
+
+ไปที่ **Table Editor** ใน Supabase → เลือก schema `voice_analysis` — ควรเห็น:
 
 | Table              | Columns                                                                                                                                                                              |
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `audio_files`      | id, filename, original_name, file_size, duration, mime_type, storage_url, status, error_message, created_at                                                                          |
+| `audio_files`      | id, filename, original_name, file_size, duration, mime_type, storage_url, status, error_message, n8n_execution_id, created_at                                                        |
 | `analysis_results` | id, audio_file_id, transcription, emotion, emotion_score, satisfaction_score, illegal_detected, illegal_details, summary, model_used, stt_model_used, processing_time_ms, created_at |
 
 ---
@@ -213,7 +252,7 @@ curl http://localhost:9000/minio/health/live
 yarn dev
 ```
 
-เปิด [http://localhost:5173](http://localhost:5173) — ควรเห็นหน้า Voice Analysis
+เปิด [http://localhost:3000](http://localhost:3000) — ควรเห็นหน้า Voice Analysis
 
 ---
 
@@ -264,10 +303,14 @@ services:
 
 ## Migrations ถัดไป
 
-| ไฟล์                            | สถานะ   | เมื่อต้องการ                                           |
-| ------------------------------- | ------- | ------------------------------------------------------ |
-| `002_add_summary_stt_model.sql` | ✅ Done | เพิ่ม summary + stt_model_used ใน analysis_results     |
-| `003_add_auth.sql`              | Pending | เมื่อเพิ่ม Supabase Auth (ดู `docs/auth-migration.md`) |
+| ไฟล์                            | สถานะ      | เมื่อต้องการ                                                       |
+| ------------------------------- | ---------- | ------------------------------------------------------------------ |
+| `001_initial.sql`               | ✅ Done    | สร้างตาราง audio_files + analysis_results ใน schema voice_analysis |
+| `002_add_summary_stt_model.sql` | ✅ Done    | เพิ่ม summary + stt_model_used ใน analysis_results                 |
+| `003_add_n8n_execution_id.sql`  | ✅ Done    | เพิ่ม n8n_execution_id ใน audio_files                              |
+| `004_add_user_id.sql`           | ⏳ Not run | เมื่อเพิ่ม Supabase Auth Phase 1 (ดู `docs/auth-migration.md`)     |
+
+> ดูคำสั่งทั้งหมดแบบละเอียดได้ที่ `docs/supabase-setup-commands.md`
 
 ---
 

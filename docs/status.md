@@ -25,7 +25,7 @@
 
 | Feature         | Route / Resource                       | หมายเหตุ                                                     |
 | --------------- | -------------------------------------- | ------------------------------------------------------------ |
-| Knowledge Base  | MindsDB `call_transcriptions`          | pgvector ใน Supabase (`supabase_pgvector.kb_transcriptions`) |
+| Knowledge Base  | MindsDB `call_kb`                      | pgvector ใน Supabase (`supabase_pgvector.kb_transcriptions`) |
 | Semantic Search | `GET /api/search?q=...`                | dedup by `audio_file_id`, คืน N unique files                 |
 | Analytics Chat  | `POST /api/agent`                      | MindsDB Agent `call_analytics_agent` → ตอบภาษาไทย            |
 | Auto-index Job  | MindsDB Job `index_new_transcriptions` | รันทุก 1 ชั่วโมง                                             |
@@ -33,7 +33,7 @@
 **KB Syntax ที่ใช้ได้จริง:**
 
 ```sql
-CREATE KNOWLEDGE BASE call_transcriptions
+CREATE KNOWLEDGE BASE call_kb
 USING
   embedding_model = {
     "provider": "openai",

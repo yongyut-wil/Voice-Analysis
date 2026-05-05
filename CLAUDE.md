@@ -52,10 +52,11 @@ app/
   types/
     analysis.ts           # AudioFile, AnalysisResult, Emotion types
 supabase/
+  schema.sql                        # ✅ Fresh install — รันไฟล์เดียวจบ (public schema, ไม่มี n8n column)
   migrations/
-    001_initial.sql                 # audio_files + analysis_results tables
+    001_initial.sql                 # audio_files + analysis_results tables (voice_analysis schema — legacy)
     002_add_summary_stt_model.sql   # เพิ่ม summary + stt_model_used columns
-    003_add_n8n_execution_id.sql    # n8n execution trace column
+    004_add_user_id.sql             # user_id + RLS policies (public schema)
 n8n/
   workflows/
     00-voice-analysis-pipeline.json  # Core STT + LLM analysis pipeline
@@ -82,10 +83,12 @@ docs/
 
 ### Database
 
+- Schema: **`public`** (Supabase expose ให้อัตโนมัติ ไม่ต้องตั้งค่าเพิ่ม)
 - Tables: `audio_files`, `analysis_results`
 - Status lifecycle: `pending → processing → done | error`
 - Emotion values: `'positive' | 'neutral' | 'negative'` (lowercase เสมอ)
 - `analysis_results` มี columns เพิ่มเติม: `summary TEXT`, `stt_model_used TEXT`
+- Fresh install: รัน `supabase/schema.sql` ใน Supabase SQL Editor ไฟล์เดียวจบ
 - ไม่มี migration tool — run SQL ตรงใน Supabase SQL Editor
 
 ### Routing
@@ -132,7 +135,7 @@ docs/
 2. **Cloudflare Connection Drop** — LiteLLM proxy อยู่หลัง Cloudflare ซึ่งตัด connection จริงที่ ~60s ไฟล์ใหญ่ (>5MB) จะ fail ด้วย "Connection error" เสมอ
    - Workaround: ใช้ไฟล์เล็กลง หรือชี้ `LITELLM_BASE_URL` ไปยัง endpoint ภายในที่ไม่ผ่าน Cloudflare
    - แนวทางถาวร: bypass ผ่าน Netbird IP หรือเพิ่ม timeout ใน Cloudflare dashboard
-3. **ไม่มี Auth** — ทุกคนที่เข้าถึง URL เห็นข้อมูลทั้งหมด (ดู `docs/auth-migration.md`)
+3. **Auth ต้อง login** — ใช้ Supabase Auth + RLS (migration 004) บังคับ authenticated role ก่อนเข้าถึงข้อมูล
 4. **หน้า /analyses ไม่ Real-time** — ต้อง refresh เองเพื่อเห็นสถานะใหม่
 5. **MindsDB Agent API** — ใช้ `/a2a/` JSON-RPC endpoint (ไม่ใช่ SQL SDK) เพราะ:
    - SDK auth มีปัญหากับ agent queries (401 errors even after successful connection)
@@ -144,7 +147,8 @@ docs/
 
 ```
 SUPABASE_URL
-SUPABASE_ANON_KEY                # ใช้เท่านั้น (app ไม่ใช้ SERVICE_ROLE_KEY)
+SUPABASE_ANON_KEY                # ใช้สำหรับ auth (SSR session)
+SUPABASE_SERVICE_ROLE_KEY        # ใช้สำหรับ DB operations ฝั่ง server (bypass RLS)
 MINIO_ENDPOINT
 MINIO_PORT
 MINIO_USE_SSL
@@ -168,6 +172,16 @@ MINDSDB_HOST             # MindsDB server URL เช่น http://localhost:4733
 MINDSDB_USERNAME         # username สำหรับ login (default: "admin")
 MINDSDB_PASSWORD         # password สำหรับ login (default: "admin123")
 MINDSDB_API_KEY          # ปล่อยว่างสำหรับ self-hosted, ใส่ key สำหรับ MindsDB Cloud
+
+# Authentik OIDC SSO (optional — Phase 2)
+# ⚠️ READ โดย Supabase GoTrue ไม่ใช่ Node app โดยตรง
+# - Self-hosted Supabase: ใส่ใน supabase-auth service env
+# - Supabase Cloud: ใส่ใน Dashboard → Auth → Providers → Custom OIDC Provider
+# - ค่าได้มาจาก Authentik Admin → Applications → Providers → <Voice Analysis>
+AUTHENTIK_CLIENT_ID=
+AUTHENTIK_CLIENT_SECRET=
+AUTHENTIK_ISSUER_URL=    # https://<authentik-domain>/application/o/voice-analysis/ (ต้องมี trailing slash)
+AUTHENTIK_REDIRECT_URI=  # <supabase-url>/auth/v1/callback
 ```
 
 ### STT Provider
@@ -219,6 +233,7 @@ main ← staging ← develop ← yongyut/feat-xxx
 | `docker-compose.demo-dev.yml`    | Demo dev (local)              | voice-app + postgres + mindsdb + external services                                  |
 | `docker-compose.demo-prod.yml`   | ⚠️ Broken                     | มี `depends_on: postgres` แต่ไม่มี service → ห้ามใช้                                |
 | **`docker-compose.coolify.yml`** | **Coolify Production**        | ✅ **Production-ready** — 2 services เท่านั้น: voice-app + mindsdb (ที่เป็นมาตรฐาน) |
+| `docker-compose.authentik.yml`   | Local Authentik IdP           | รัน Authentik สำหรับ SSO testing — ใช้ร่วมกับ `.env.authentik.example`              |
 
 ### Coolify Deployment (Production)
 

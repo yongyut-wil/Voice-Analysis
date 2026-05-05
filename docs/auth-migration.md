@@ -1,166 +1,190 @@
 # Auth Migration Guide
 
-คู่มือสำหรับเพิ่ม Supabase Auth เข้าระบบในภายหลัง (ปัจจุบัน MVP ไม่มี Auth)
+> อัพเดท: 2026-05-04
+> เอกสารนี้ track progress การเพิ่ม Auth เข้าระบบ แบ่งเป็น 2 phases
 
 ---
 
-## 1. Database Migration
+## สถานะรวม
 
-สร้าง `supabase/migrations/002_add_auth.sql`:
-
-```sql
--- เพิ่ม user_id ใน audio_files
-ALTER TABLE audio_files
-  ADD COLUMN user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL;
-
-CREATE INDEX IF NOT EXISTS idx_audio_files_user_id ON audio_files(user_id);
-
--- Row Level Security
-ALTER TABLE audio_files ENABLE ROW LEVEL SECURITY;
-ALTER TABLE analysis_results ENABLE ROW LEVEL SECURITY;
-
--- Policy: เจ้าของดูได้เฉพาะของตัวเอง
-CREATE POLICY "owner_select" ON audio_files
-  FOR SELECT USING (auth.uid() = user_id);
-
-CREATE POLICY "owner_insert" ON audio_files
-  FOR INSERT WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "owner_delete" ON audio_files
-  FOR DELETE USING (auth.uid() = user_id);
-
--- analysis_results เข้าถึงผ่าน audio_files
-CREATE POLICY "owner_select_analysis" ON analysis_results
-  FOR SELECT USING (
-    EXISTS (
-      SELECT 1 FROM audio_files
-      WHERE audio_files.id = analysis_results.audio_file_id
-        AND audio_files.user_id = auth.uid()
-    )
-  );
-```
+| Phase       | รายการ                               | สถานะ                                          |
+| ----------- | ------------------------------------ | ---------------------------------------------- |
+| **Phase 1** | Email/Password Login (Supabase Auth) | ✅ Code Done — รอ apply RLS migration          |
+| **Phase 2** | Authentik SSO Integration            | ⚙️ Code พร้อม — รอ Authentik + Supabase config |
 
 ---
 
-## 2. Supabase Client — เพิ่ม Auth Methods
+## Phase 1: Email/Password — ✅ Code Done
 
-`app/lib/supabase.server.ts` — เพิ่มฟังก์ชัน:
+### ไฟล์ที่สร้าง/แก้ไขแล้ว
 
-```typescript
-import { createServerClient } from "@supabase/ssr";
+| ไฟล์                                      | สถานะ | คำอธิบาย                                                       |
+| ----------------------------------------- | ----- | -------------------------------------------------------------- |
+| `package.json`                            | ✅    | เพิ่ม `@supabase/ssr@0.10.2`                                   |
+| `app/lib/auth.server.ts`                  | ✅    | `createSupabaseServerClient`, `requireAuth`, `getOptionalUser` |
+| `app/routes/auth.login.tsx`               | ✅    | Email/Password form + SSO button (active)                      |
+| `app/routes/auth.callback.tsx`            | ✅    | แลก `?code=` เป็น session                                      |
+| `app/routes/auth.logout.tsx`              | ✅    | POST sign out + clear cookie                                   |
+| `app/routes.ts`                           | ✅    | เพิ่ม auth/login, auth/logout, auth/callback                   |
+| `app/routes/home.tsx`                     | ✅    | ป้องกันด้วย `requireAuth()`                                    |
+| `app/routes/analyses.tsx`                 | ✅    | ป้องกันด้วย `requireAuth()` + logout button                    |
+| `app/routes/analyses.$id.tsx`             | ✅    | ป้องกันด้วย `requireAuth()`                                    |
+| `app/routes/api/upload.tsx`               | ✅    | เก็บ `user_id` จาก session                                     |
+| `supabase/migrations/004_add_user_id.sql` | ⏳    | รอ apply ใน Supabase                                           |
 
-// ใช้ request/response cookies สำหรับ SSR session
-export function createSupabaseServerClient(request: Request, headers: Headers) {
-  return createServerClient(process.env.SUPABASE_URL!, process.env.SUPABASE_ANON_KEY!, {
-    cookies: {
-      getAll() {
-        return parseCookies(request.headers.get("Cookie") ?? "");
-      },
-      setAll(cookiesToSet) {
-        cookiesToSet.forEach(({ name, value, options }) =>
-          headers.append("Set-Cookie", serializeCookie(name, value, options))
-        );
-      },
-    },
-  });
-}
-```
+### สิ่งที่ยังต้องทำ (Phase 1 ให้ครบ)
 
-Dependencies เพิ่มเติม:
+#### 1. Apply RLS Migration
+
+ไฟล์ canonical: `supabase/migrations/004_add_user_id.sql`
+
+**Self-hosted Supabase:**
 
 ```bash
-yarn add @supabase/ssr
+supabase db push
+# หรือ paste ไฟล์ใน SQL Editor
+```
+
+**Supabase Cloud:**
+เปิด Supabase Dashboard → SQL Editor → paste content ของ `supabase/migrations/004_add_user_id.sql`
+
+**ตรวจสอบ:**
+
+```sql
+SELECT tablename, rowsecurity FROM pg_tables
+  WHERE schemaname = 'public'
+    AND tablename IN ('audio_files', 'analysis_results');
+-- ต้องเห็น rowsecurity = true ทั้งสองตาราง
+
+SELECT polname FROM pg_policy
+  WHERE polrelid IN (
+    'public.audio_files'::regclass,
+    'public.analysis_results'::regclass
+  );
+-- ต้องเห็น policies ที่สร้างขึ้น
+```
+
+> **RLS Policy ที่ตั้งค่า:** all-authenticated users เห็นทุก record (internal tool style)
+> service_role (n8n callbacks) bypass RLS อัตโนมัติ — ไม่กระทบ callback endpoints
+
+#### 2. สร้าง User ทดสอบ
+
+Supabase Dashboard → Authentication → Users → Invite user:
+
+- Email: `admin@example.com`
+- หรือใช้ **Create user** แบบตั้ง password เอง
+
+#### 3. ทดสอบ Login Flow
+
+```bash
+yarn dev
+# เปิด http://localhost:3000/analyses
+# → ควร redirect ไป /auth/login?next=%2Fanalyses
+# ใส่ email/password → เข้าได้
+# กด "ออกจากระบบ" → redirect กลับ /auth/login
+```
+
+#### 4. ยืนยัน n8n Callbacks
+
+```bash
+# เรียก callback ด้วย X-N8N-Secret header
+curl -X POST http://localhost:3000/api/callback/status \
+  -H "X-N8N-Secret: ${N8N_CALLBACK_SECRET}" \
+  -H "Content-Type: application/json" \
+  -d '{"id":"test","status":"done"}'
+# ต้องได้ response ปกติ ไม่ใช่ 401/403
 ```
 
 ---
 
-## 3. Auth Routes
+## Phase 2: Authentik SSO — ⚙️ Implementation Runbook
 
-สร้างไฟล์ใหม่:
+> เอกสารเต็ม: **`docs/authentik-sso-integration.md`**
 
+### ขั้นตอนสรุป (6 steps)
+
+1. **Deploy Authentik** (ถ้ายังไม่มี)
+
+   ```bash
+   cp .env.authentik.example .env.authentik
+   # เติม PG_PASS, AUTHENTIK_SECRET_KEY, AUTHENTIK_BOOTSTRAP_PASSWORD
+   docker compose -f docker-compose.authentik.yml --env-file .env.authentik up -d
+   # เปิด http://localhost:9000/if/flow/initial-setup/
+   ```
+
+2. **สร้าง Authentik Application + OAuth2/OIDC Provider**
+   - Client Type: Confidential
+   - Redirect URI: `<supabase-url>/auth/v1/callback`
+   - Scopes: openid, profile, email
+   - จด Client ID, Client Secret, Issuer URL (มี trailing slash)
+
+3. **Config Supabase GoTrue** (เลือกวิธีตาม deployment):
+   - **Self-hosted**: เพิ่ม `GOTRUE_EXTERNAL_AUTHENTIK_*` env vars → restart supabase-auth
+   - **Cloud**: Dashboard → Auth → Providers → Add Custom OIDC (slug = `authentik`)
+
+4. **ตรวจสอบ Supabase ยอมรับ Authentik**
+
+   ```bash
+   curl <supabase-url>/auth/v1/settings | jq '.external.authentik'
+   # { "enabled": true }
+   ```
+
+5. **App activation**: SSO button uncommented แล้ว — ไม่ต้องแก้โค้ดเพิ่ม
+
+6. **ทดสอบ E2E**: login → analyses → upload → logout
+
+---
+
+## Rollback Procedure
+
+### Rollback Phase 2 (ปิด Authentik SSO)
+
+**App:**
+
+- Comment-out SSO divider + button ใน `app/routes/auth.login.tsx` (บรรทัด 173-191)
+
+**Supabase Self-hosted:**
+
+```bash
+# ลบ env vars
+# GOTRUE_EXTERNAL_AUTHENTIK_ENABLED
+# GOTRUE_EXTERNAL_AUTHENTIK_*
+docker compose restart supabase-auth
 ```
-app/routes/
-├── auth.login.tsx      # GET: หน้า login form / POST: sign in
-├── auth.register.tsx   # GET: หน้าสมัคร / POST: sign up
-├── auth.logout.tsx     # POST: sign out + redirect
-└── auth.callback.tsx   # GET: OAuth callback URL
-```
 
-### ตัวอย่าง `auth.login.tsx`
+**Supabase Cloud:**
+Dashboard → Auth → Providers → Custom OIDC → Disable หรือ Delete
 
-```typescript
-import { redirect, data } from "react-router";
-import { createSupabaseServerClient } from "~/lib/supabase.server";
+### Rollback Phase 1 (ปิด RLS)
 
-export async function action({ request }: Route.ActionArgs) {
-  const headers = new Headers();
-  const supabase = createSupabaseServerClient(request, headers);
-  const form = await request.formData();
+> ⚠️ ปิด RLS จะทำให้ unauthenticated access ได้อีก — ใช้เฉพาะกรณีฉุกเฉิน
 
-  const { error } = await supabase.auth.signInWithPassword({
-    email: form.get("email") as string,
-    password: form.get("password") as string,
-  });
-
-  if (error) return data({ error: error.message }, { status: 400 });
-  return redirect("/", { headers });
-}
+```sql
+ALTER TABLE public.audio_files DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.analysis_results DISABLE ROW LEVEL SECURITY;
 ```
 
 ---
 
-## 4. Protect Routes
+## Checklist
 
-ใช้ loader middleware pattern:
-
-```typescript
-// app/lib/auth.server.ts
-export async function requireAuth(request: Request) {
-  const headers = new Headers();
-  const supabase = createSupabaseServerClient(request, headers);
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) throw redirect("/auth/login");
-  return { user, supabase, headers };
-}
-
-// ใน loader ของ protected route:
-export async function loader({ request }: Route.LoaderArgs) {
-  const { user } = await requireAuth(request);
-  // ...
-}
 ```
+Phase 1
+  [x] yarn add @supabase/ssr
+  [x] สร้าง app/lib/auth.server.ts
+  [x] สร้าง auth routes (login, callback, logout)
+  [x] อัพเดต app/routes.ts
+  [x] ป้องกัน /home, /analyses, /analyses/:id
+  [x] เก็บ user_id ตอน upload (api/upload.tsx)
+  [ ] Apply 004_add_user_id.sql ใน Supabase
+  [ ] สร้าง user ทดสอบ
+  [ ] ทดสอบ login/logout flow
+  [ ] ยืนยัน n8n callbacks ยังทำงานได้
 
----
-
-## 5. Social Login (Optional)
-
-เพิ่ม Google/GitHub login ผ่าน Supabase Dashboard:
-
-1. ไปที่ Supabase Dashboard → Authentication → Providers
-2. เปิดใช้ Google หรือ GitHub
-3. ใส่ Client ID / Secret จาก Google Cloud Console / GitHub OAuth App
-4. Callback URL: `https://<your-domain>/auth/callback`
-
-ฝั่ง frontend:
-
-```typescript
-await supabase.auth.signInWithOAuth({
-  provider: "google",
-  options: { redirectTo: `${origin}/auth/callback` },
-});
+Phase 2
+  [ ] รัน docker-compose.authentik.yml (ถ้า self-host)
+  [ ] สร้าง Application + OIDC Provider ใน Authentik
+  [ ] Config Supabase: GoTrue env (self-hosted) หรือ Dashboard (Cloud)
+  [x] Uncomment SSO button ใน auth.login.tsx
+  [ ] ทดสอบ SSO login flow E2E
 ```
-
----
-
-## 6. Checklist Migration
-
-- [ ] Run `002_add_auth.sql` migration
-- [ ] Install `@supabase/ssr`
-- [ ] สร้าง auth routes (login, register, logout, callback)
-- [ ] เพิ่ม `requireAuth()` helper
-- [ ] ป้องกัน `/analyses` และ `/analyses/:id` routes
-- [ ] อัพเดต upload API ให้บันทึก `user_id`
-- [ ] เพิ่ม Navbar พร้อมปุ่ม Login/Logout
-- [ ] ทดสอบ RLS policies

@@ -3,9 +3,10 @@ import type { AudioFile, AnalysisResult, AudioFileWithAnalysis } from "~/types/a
 
 function getSupabaseClient() {
   const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_ANON_KEY;
-  if (!url || !key) throw new Error("Missing SUPABASE_URL or SUPABASE_ANON_KEY");
-  return createClient(url, key, { db: { schema: "voice_analysis" } });
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+  const schema = process.env.SUPABASE_DB_SCHEMA ?? "public";
+  return createClient(url, key, { db: { schema } });
 }
 
 export async function createAudioFile(

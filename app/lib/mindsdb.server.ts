@@ -183,6 +183,12 @@ function setCache(question: string, answer: string): void {
   answerCache.set(question, { answer, expiry: Date.now() + CACHE_TTL_MS });
 }
 
+/** Clear all cached answers — useful for debugging stale responses */
+export function clearAnswerCache(): void {
+  answerCache.clear();
+  logger.info("mindsdb:cache_cleared");
+}
+
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 export interface KBResult {
@@ -203,7 +209,7 @@ export async function semanticSearch(query: string, limit = 10): Promise<KBResul
     const auth = await ensureMindsDBAuth();
 
     const sql = `SELECT chunk_id, chunk_content, relevance, emotion, satisfaction_score, illegal_detected, audio_file_id
-     FROM call_transcriptions
+     FROM call_kb
      WHERE content = ${JSON.stringify(query)}
      LIMIT ${limit * 10}`;
 
@@ -350,6 +356,10 @@ export async function askAnalyticsAgent(question: string): Promise<string> {
             // Look for the final data response with the table output
             if (obj.type === "data" && obj.text) {
               answer = obj.text as string;
+              logger.info("mindsdb:agent_raw_answer", {
+                question: queryQuestion,
+                answerPreview: String(obj.text).slice(0, 300),
+              });
             }
           }
         }
