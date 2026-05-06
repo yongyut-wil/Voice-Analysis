@@ -41,17 +41,34 @@ export async function action({ request }: Route.ActionArgs) {
   if (intent === "sso") {
     const origin = url.origin;
     const { data: oauthData, error } = await supabase.auth.signInWithOAuth({
-      provider: "custom:authentik" as never,
+      provider: "keycloak",
       options: {
         redirectTo: `${origin}/auth/callback?next=${encodeURIComponent(next)}`,
         scopes: "openid profile email",
       },
     });
-    if (error) {
-      logger.error("SSO initiation failed", { error: error.message });
+    if (error || !oauthData?.url) {
+      logger.error("SSO initiation failed", { error: error?.message });
       return data({ error: "ไม่สามารถเชื่อมต่อ SSO ได้ กรุณาลองใหม่" }, { status: 500 });
     }
-    throw redirect(oauthData.url, { headers: responseHeaders });
+    // oauthData.url = GoTrue /authorize URL (browser ยังไม่เห็น Authentik URL)
+    // fetch server-side เพื่อรับ redirect location แล้ว rewrite ก่อนส่ง browser
+    let authUrl = oauthData.url;
+    try {
+      const goTrueResp = await fetch(oauthData.url, { redirect: "manual" });
+      const location = goTrueResp.headers.get("location");
+      if (location) {
+        authUrl = location;
+        const authentikAuthorizeUrl = process.env.AUTHENTIK_AUTHORIZE_URL;
+        if (authentikAuthorizeUrl && authUrl.includes("oidc-proxy")) {
+          const { search } = new URL(authUrl);
+          authUrl = `${authentikAuthorizeUrl}${search}`;
+        }
+      }
+    } catch (fetchErr) {
+      logger.warn("SSO URL rewrite fetch failed, falling back", { error: String(fetchErr) });
+    }
+    throw redirect(authUrl, { headers: responseHeaders });
   }
   // ─────────────────────────────────────────────────────────────────────
 
