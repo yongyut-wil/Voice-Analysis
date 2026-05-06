@@ -1,5 +1,6 @@
 import { data } from "react-router";
 import { getAudioFileById } from "~/lib/supabase.server";
+import { isStuckProcessing } from "~/lib/analysis.server";
 import type { Route } from "./+types/status";
 
 export async function loader({ params }: Route.LoaderArgs) {
@@ -15,5 +16,6 @@ export async function loader({ params }: Route.LoaderArgs) {
     status: file.status,
     error: file.error_message ?? null,
     analysisId: analysis?.id ?? null,
+    stuck: isStuckProcessing(file),
   });
 }

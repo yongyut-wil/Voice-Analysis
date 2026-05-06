@@ -3,10 +3,10 @@ import {
   getAudioFileById,
   updateAudioFileStatus,
   deleteAnalysisResultByFileId,
+  resetAudioFileForRetry,
 } from "~/lib/supabase.server";
 import { audioExists } from "~/lib/minio.server";
-import { triggerAnalysis } from "~/lib/n8n.server";
-import { runAnalysis, cleanErrorMessage } from "~/lib/analysis.server";
+import { runAnalysis, cleanErrorMessage, isStuckProcessing } from "~/lib/analysis.server";
 import { extractErrorMessage } from "~/lib/error-utils";
 import { logger } from "~/lib/logger";
 import type { Route } from "./+types/retry";
@@ -22,7 +22,7 @@ export async function action({ request, params }: Route.ActionArgs) {
   const audioFile = await getAudioFileById(id);
   if (!audioFile) return data({ error: "Audio file not found" }, { status: 404 });
 
-  if (audioFile.status === "processing") {
+  if (audioFile.status === "processing" && !isStuckProcessing(audioFile)) {
     return data({ error: "กำลังวิเคราะห์อยู่แล้ว" }, { status: 409 });
   }
 
@@ -36,22 +36,13 @@ export async function action({ request, params }: Route.ActionArgs) {
 
   // ลบ analysis_results เก่า (ถ้ามี) แล้วเริ่มใหม่
   await deleteAnalysisResultByFileId(id);
-  await updateAudioFileStatus(id, "processing");
+  await resetAudioFileForRetry(id);
 
   logger.info("retry:queued", { audioFileId: id, name: audioFile.original_name });
 
-  const skipN8n = process.env.SKIP_N8N === "true";
-  const analysisJob = skipN8n
-    ? () => runAnalysis(id, audioFile.filename, audioFile.original_name)
-    : () => triggerAnalysis(id, audioFile.filename, audioFile.original_name);
-
-  analysisJob().catch(async (err: unknown) => {
+  runAnalysis(id, audioFile.filename, audioFile.original_name).catch(async (err: unknown) => {
     const message = cleanErrorMessage(extractErrorMessage(err));
-    logger.error("retry:failed", {
-      audioFileId: id,
-      error: message,
-      mode: skipN8n ? "direct" : "n8n",
-    });
+    logger.error("retry:failed", { audioFileId: id, error: message });
     await updateAudioFileStatus(id, "error", message);
   });
 

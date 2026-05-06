@@ -1,6 +1,13 @@
 import OpenAI from "openai";
 import type { AnalysisOutput, Emotion } from "~/types/analysis";
 import { logger } from "~/lib/logger";
+import {
+  CHUNK_SECONDS,
+  CHUNK_THRESHOLD_SEC,
+  chunkAudioToMp3,
+  probeDurationSec,
+} from "~/lib/audio.server";
+import { extractErrorMessage } from "~/lib/error-utils";
 
 // Whisper แยก syllable ภาษาไทยด้วยช่องว่าง — ต้องต่อกลับคืน
 function cleanThaiText(text: string): string {
@@ -50,8 +57,6 @@ async function transcribeWithLiteLLM(buffer: Buffer, filename: string): Promise<
       model,
       language: "th",
       response_format: "text",
-      ...(model.includes("diarize") &&
-        ({ chunking_strategy: { type: "auto" } } as Record<string, unknown>)),
     });
 
     const raw =
@@ -62,12 +67,58 @@ async function transcribeWithLiteLLM(buffer: Buffer, filename: string): Promise<
   }
 }
 
+async function transcribeChunkWithRetry(
+  chunkBuffer: Buffer,
+  chunkName: string,
+  index: number
+): Promise<string> {
+  try {
+    return await transcribeWithLiteLLM(chunkBuffer, chunkName);
+  } catch (err) {
+    logger.warn("stt:chunk_retry", { index, error: extractErrorMessage(err) });
+    return await transcribeWithLiteLLM(chunkBuffer, chunkName);
+  }
+}
+
 export async function transcribeAudio(
   buffer: Buffer,
   filename: string
-): Promise<{ transcription: string; sttModel: string }> {
-  const transcription = await transcribeWithLiteLLM(buffer, filename);
-  return { transcription, sttModel: process.env.LITELLM_STT_MODEL ?? "gpt-4o-mini-transcribe" };
+): Promise<{ transcription: string; sttModel: string; duration: number }> {
+  const sttModel = process.env.LITELLM_STT_MODEL ?? "gpt-4o-mini-transcribe";
+  const ext = filename.split(".").pop()?.toLowerCase() ?? "m4a";
+  const duration = await probeDurationSec(buffer, ext);
+
+  if (duration <= CHUNK_THRESHOLD_SEC) {
+    const transcription = await transcribeWithLiteLLM(buffer, filename);
+    return { transcription, sttModel, duration };
+  }
+
+  const chunks = await chunkAudioToMp3(buffer, ext, CHUNK_SECONDS);
+  logger.info("stt:chunked", {
+    duration_sec: Math.round(duration),
+    chunks: chunks.length,
+    chunk_sec: CHUNK_SECONDS,
+  });
+
+  const concurrency = 3;
+  const results: string[] = new Array(chunks.length);
+  for (let i = 0; i < chunks.length; i += concurrency) {
+    const batch = chunks.slice(i, i + concurrency);
+    const batchResults = await Promise.all(
+      batch.map((chunk, j) =>
+        transcribeChunkWithRetry(chunk, `${filename}.chunk${i + j}.mp3`, i + j)
+      )
+    );
+    batchResults.forEach((text, j) => {
+      results[i + j] = text;
+    });
+    logger.info("stt:chunk_batch_done", {
+      done: Math.min(i + concurrency, chunks.length),
+      total: chunks.length,
+    });
+  }
+
+  return { transcription: results.join("\n"), sttModel, duration };
 }
 
 const ANALYSIS_PROMPT_PLACEHOLDER = "{TRANSCRIPTION}";

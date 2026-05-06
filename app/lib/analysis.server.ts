@@ -1,9 +1,22 @@
 import { downloadAudio, deleteAudio } from "~/lib/minio.server";
 import { transcribeAudio, analyzeTranscription } from "~/lib/litellm.server";
-import { updateAudioFileStatus, createAnalysisResult } from "~/lib/supabase.server";
+import {
+  updateAudioFileStatus,
+  updateAudioFileDuration,
+  createAnalysisResult,
+} from "~/lib/supabase.server";
 import { logger } from "~/lib/logger";
 
 export { cleanErrorMessage } from "~/lib/error-utils";
+
+export const STUCK_THRESHOLD_MS = 30 * 60 * 1000;
+
+export function isStuckProcessing(file: { status: string; created_at: string }): boolean {
+  return (
+    file.status === "processing" &&
+    Date.now() - new Date(file.created_at).getTime() > STUCK_THRESHOLD_MS
+  );
+}
 
 export async function runAnalysis(
   audioFileId: string,
@@ -14,10 +27,12 @@ export async function runAnalysis(
   logger.info("analysis:start", { audioFileId, filename: originalName });
 
   const buffer = await downloadAudio(filename);
-  const { transcription, sttModel } = await transcribeAudio(buffer, originalName);
+  const { transcription, sttModel, duration } = await transcribeAudio(buffer, originalName);
+  await updateAudioFileDuration(audioFileId, duration);
   logger.info("analysis:transcribed", {
     audioFileId,
     sttModel,
+    duration_sec: Math.round(duration),
     chars: transcription.length,
     preview: transcription.slice(0, 80).replaceAll("\n", " "),
     elapsed_ms: Date.now() - startTime,

@@ -9,7 +9,8 @@
 - **Storage**: MinIO (S3-compatible) — bucket `voice-analysis`
 - **AI (STT)**: LiteLLM → `gpt-4o-mini-transcribe` หรือ model ที่กำหนดใน `LITELLM_STT_MODEL`
 - **AI (Analysis)**: LiteLLM proxy → Claude Sonnet
-- **Automation**: direct Node.js background analysis เป็น path เริ่มต้น; `n8n` ยังรองรับเป็น optional orchestration/monitoring path
+- **Automation**: direct Node.js background analysis (fire-and-forget ใน process เดียวกัน)
+- **Audio processing**: ffmpeg + ffprobe (system binary) — ใช้ probe duration และ chunk ไฟล์ยาว
 - **UI**: shadcn/ui + TailwindCSS v4 + Lucide icons
 - **Language**: TypeScript strict mode
 
@@ -23,24 +24,18 @@ app/
     analyses.$id.tsx      # รายละเอียด (loader) + RetryButton
     well-known.tsx        # /.well-known/* → 404 เงียบๆ
     api/upload.tsx        # POST /api/upload — MinIO + Supabase
-    api/analyze.tsx       # POST /api/analyze — start analysis job, return 202 (direct by default)
+    api/analyze.tsx       # POST /api/analyze — start analysis job (direct), return 202
     api/retry.tsx         # POST /api/retry/:id — ลบ result เก่า แล้วเริ่มใหม่
     api/status.tsx        # GET /api/status/:id — polling endpoint
-    api/callback/         # optional n8n callback endpoints (authenticated with X-N8N-Secret)
-      status.tsx             # POST — n8n เรียกเพื่อ update status (done/error)
-      audio-download-url.tsx # GET — n8n ขอ presigned URL ดาวน์โหลดเสียง
-      transcribe-audio.tsx   # POST — n8n ส่ง filename → app ทำ STT → return transcription
-      save-analysis.tsx      # POST — n8n ส่งผลวิเคราะห์ → app บันทึกลง Supabase
-      delete-audio.tsx       # POST — n8n สั่งลบไฟล์เสียงจาก MinIO
-    api/health.tsx        # GET — health check (MinIO + Supabase + optional n8n)
+    api/health.tsx        # GET — health check (MinIO + Supabase)
     api/search.tsx        # GET /api/search?q=... — semantic search ผ่าน MindsDB KB
     api/agent.tsx         # POST /api/agent { question } — NL analytics ผ่าน MindsDB Agent
   lib/
     supabase.server.ts    # DB operations (server only)
     minio.server.ts       # File storage (server only)
     litellm.server.ts     # AI calls — STT + LLM analysis (server only)
-    analysis.server.ts    # runAnalysis() — direct in-process orchestration path (default when SKIP_N8N=true)
-    n8n.server.ts         # optional n8n integration — triggerAnalysis(), triggerPostCallProcessing(), validateCallbackSecret() (server only)
+    audio.server.ts       # ffmpeg/ffprobe wrapper — probeDurationSec, chunkAudioToMp3
+    analysis.server.ts    # runAnalysis() + isStuckProcessing() (server only)
     mindsdb.server.ts     # MindsDB integration — semanticSearch(), askAnalyticsAgent() (server only)
     error-utils.ts        # cleanErrorMessage(), extractErrorMessage() — ใช้ได้ทั้ง client และ server
     logger.ts             # Structured logging — ANSI color (dev) / JSON (production)
@@ -52,19 +47,11 @@ app/
   types/
     analysis.ts           # AudioFile, AnalysisResult, Emotion types
 supabase/
-  schema.sql                        # ✅ Fresh install — รันไฟล์เดียวจบ (public schema, ไม่มี n8n column)
+  schema.sql                        # ✅ Fresh install — รันไฟล์เดียวจบ (public schema)
   migrations/
     001_initial.sql                 # audio_files + analysis_results tables (voice_analysis schema — legacy)
     002_add_summary_stt_model.sql   # เพิ่ม summary + stt_model_used columns
     004_add_user_id.sql             # user_id + RLS policies (public schema)
-n8n/
-  workflows/
-    00-voice-analysis-pipeline.json  # Core STT + LLM analysis pipeline
-    01-post-call-processing.json     # Alerting: negative emotion, illegal, low satisfaction
-    02-daily-summary-report.json     # Cron: daily stats to Slack
-    03-quality-gate.json             # Validate transcription quality
-    04-stuck-processing-monitor.json # Detect stuck processing >10min
-    05-audio-cleanup.json            # Daily batch delete old audio files
 docs/
   architecture.md         # System architecture diagrams + data flow
   how-it-works.md         # Step-by-step walkthrough สำหรับ developer ใหม่
@@ -121,20 +108,19 @@ docs/
 
 ### AI Pipeline
 
-- `transcribeAudio(buffer, filename)` return `{ transcription, sttModel }` — ไม่ใช่ string เปล่าอีกต่อไป
+- `transcribeAudio(buffer, filename)` return `{ transcription, sttModel, duration }` — duration เป็นวินาที (probe ด้วย ffprobe)
+- ไฟล์ยาว > 5 นาที → `chunkAudioToMp3` แบ่งเป็น chunk 5 นาที (mp3 mono 16kHz 32kbps) แล้ว parallel transcribe 3 chunks/batch แล้ว concat ด้วย `\n`
+- ไฟล์ ≤ 5 นาที → single-shot ตรงๆ ผ่าน `transcribeWithLiteLLM` (zero overhead)
 - `analyzeTranscription(text)` return `AnalysisOutput` ซึ่งรวม `summary` ด้วย
-- `runAnalysis(audioFileId, filename, originalName)` คือ direct background path ที่ใช้เมื่อ `SKIP_N8N=true`
-- `triggerAnalysis(...)` ใน `n8n.server.ts` ยังรองรับอยู่เมื่อ `SKIP_N8N=false`
-- Post-processing pipeline (LiteLLM path): `removeRepetitions(cleanThaiText(raw))`
+- `runAnalysis(audioFileId, filename, originalName)` — direct background analysis (fire-and-forget); บันทึก `audio_files.duration` หลัง probe
+- Post-processing pipeline (LiteLLM path): `removeRepetitions(cleanThaiText(raw))` ทำต่อ chunk ก่อน concat
 - `max_tokens: 1024` สำหรับ analysis — เพื่อให้ summary ไม่ถูกตัดกลางคัน
+- Stuck-processing detection (`isStuckProcessing`): threshold 30 นาที — รองรับไฟล์ประชุมยาวที่ใช้เวลา transcribe + analyze หลายนาที
 
 ## Known Limitations (MVP)
 
-1. **Direct analysis รันแบบ fire-and-forget ใน Node.js process โดย default** — ถ้า web process restart ระหว่างงานยาว งานที่กำลังรันอาจล้มเหลวหรือหายกลางทางได้
-   - ทางเลือก: ตั้ง `SKIP_N8N=false` เพื่อย้าย orchestration ไป `n8n` หากต้องการ flow ที่แยกจาก web process
-2. **Cloudflare Connection Drop** — LiteLLM proxy อยู่หลัง Cloudflare ซึ่งตัด connection จริงที่ ~60s ไฟล์ใหญ่ (>5MB) จะ fail ด้วย "Connection error" เสมอ
-   - Workaround: ใช้ไฟล์เล็กลง หรือชี้ `LITELLM_BASE_URL` ไปยัง endpoint ภายในที่ไม่ผ่าน Cloudflare
-   - แนวทางถาวร: bypass ผ่าน Netbird IP หรือเพิ่ม timeout ใน Cloudflare dashboard
+1. **Direct analysis รันแบบ fire-and-forget ใน Node.js process** — ถ้า web process restart ระหว่างงานยาว งานที่กำลังรันอาจล้มเหลวหรือหายกลางทางได้ — UI มี stuck-detection (30 นาที) + ปุ่ม retry manual
+2. **Cloudflare Connection Drop** — LiteLLM proxy อยู่หลัง Cloudflare ซึ่งตัด connection จริงที่ ~60s — **mitigate แล้วผ่าน chunking** (chunk 5 นาทีขนาดเล็ก response ไม่ถึง 60s) แต่กรณีไฟล์ ≤ 5 นาที ที่ STT response ตอบช้าเกิน 60s ยังเจอได้
 3. **Auth ต้อง login** — ใช้ Supabase Auth + RLS (migration 004) บังคับ authenticated role ก่อนเข้าถึงข้อมูล
 4. **หน้า /analyses ไม่ Real-time** — ต้อง refresh เองเพื่อเห็นสถานะใหม่
 5. **MindsDB Agent API** — ใช้ `/a2a/` JSON-RPC endpoint (ไม่ใช่ SQL SDK) เพราะ:
@@ -160,12 +146,6 @@ LITELLM_API_KEY
 LITELLM_STT_MODEL        # เช่น gpt-4o-mini-transcribe
 LITELLM_ANALYSIS_MODEL   # เช่น claude-sonnet-4-6
 ANALYSIS_PROMPT_TEMPLATE # optional; ถ้าตั้งค่า จะ override prompt วิเคราะห์ (ใช้ `{TRANSCRIPTION}` เป็น placeholder ได้)
-
-# n8n Integration (required — primary orchestration path)
-N8N_WEBHOOK_URL          # n8n base URL เช่น http://localhost:5678
-N8N_ANALYSIS_WEBHOOK_PATH # webhook path เช่น /webhook/voice-analysis
-N8N_CALLBACK_SECRET      # shared secret สำหรับ authenticate callback requests
-N8N_CALLBACK_BASE_URL    # URL ที่ n8n ใช้เรียกกลับมา React app เช่น http://localhost:3000
 
 # MindsDB Integration (optional — semantic search + analytics agent)
 MINDSDB_HOST             # MindsDB server URL เช่น http://localhost:47334
@@ -228,7 +208,7 @@ main ← staging ← develop ← yongyut/feat-xxx
 
 | ไฟล์                             | ใช้สำหรับ                     | หมายเหตุ                                                                            |
 | -------------------------------- | ----------------------------- | ----------------------------------------------------------------------------------- |
-| `docker-compose-dev.yml`         | Local dev (สำหรับ developers) | เอา Supabase, MinIO, n8n, MindsDB มาใน compose                                      |
+| `docker-compose-dev.yml`         | Local dev (สำหรับ developers) | เอา Supabase, MinIO, MindsDB มาใน compose                                           |
 | `docker-compose-sit.yml`         | SIT environment               | ใช้ external Supabase, หลัก MinIO เก่าใน compose                                    |
 | `docker-compose.demo-dev.yml`    | Demo dev (local)              | voice-app + postgres + mindsdb + external services                                  |
 | `docker-compose.demo-prod.yml`   | ⚠️ Broken                     | มี `depends_on: postgres` แต่ไม่มี service → ห้ามใช้                                |
@@ -237,7 +217,7 @@ main ← staging ← develop ← yongyut/feat-xxx
 
 ### Coolify Deployment (Production)
 
-สำหรับ deploy บน Coolify ใช้ `docker-compose.coolify.yml` กับ external services (Supabase, MinIO, LiteLLM, n8n)
+สำหรับ deploy บน Coolify ใช้ `docker-compose.coolify.yml` กับ external services (Supabase, MinIO, LiteLLM)
 
 **คู่มือ Step-by-Step:** → `docs/coolify-quickstart.md`
 

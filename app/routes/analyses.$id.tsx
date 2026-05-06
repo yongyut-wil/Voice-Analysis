@@ -2,6 +2,7 @@ import type { Route } from "./+types/analyses.$id";
 import { Link, data, useNavigate, useRevalidator } from "react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getAudioFileById } from "~/lib/supabase.server";
+import { isStuckProcessing } from "~/lib/analysis.server";
 import { requireAuth } from "~/lib/auth.server";
 import { cleanErrorMessage } from "~/lib/error-utils";
 import { EmotionBadge } from "~/components/emotion-badge";
@@ -28,7 +29,8 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     ...file,
     error_message: file.error_message ? cleanErrorMessage(file.error_message) : null,
   };
-  return data({ file: cleanedFile, analysis }, { headers: responseHeaders });
+  const stuck = isStuckProcessing(file);
+  return data({ file: cleanedFile, analysis, stuck }, { headers: responseHeaders });
 }
 
 function formatDate(iso: string) {
@@ -46,6 +48,14 @@ function formatDuration(sec: number | null) {
   const m = Math.floor(sec / 60);
   const s = Math.round(sec % 60);
   return `${m}:${String(s).padStart(2, "0")} นาที`;
+}
+
+function formatElapsed(iso: string, now: number) {
+  const diffSec = Math.max(0, Math.floor((now - new Date(iso).getTime()) / 1000));
+  if (diffSec < 60) return `${diffSec} วินาที`;
+  const m = Math.floor(diffSec / 60);
+  const s = diffSec % 60;
+  return s ? `${m} นาที ${s} วินาที` : `${m} นาที`;
 }
 
 function RetryButton({ audioFileId }: Readonly<{ audioFileId: string }>) {
@@ -114,8 +124,9 @@ function RetryButton({ audioFileId }: Readonly<{ audioFileId: string }>) {
 }
 
 export default function AnalysisDetail({ loaderData }: Route.ComponentProps) {
-  const { file, analysis } = loaderData;
+  const { file, analysis, stuck } = loaderData;
   const { revalidate } = useRevalidator();
+  const [now, setNow] = useState(() => Date.now());
 
   // Auto-poll เมื่อ status = processing
   useEffect(() => {
@@ -125,6 +136,13 @@ export default function AnalysisDetail({ loaderData }: Route.ComponentProps) {
     }, 3000);
     return () => clearInterval(interval);
   }, [file.status, revalidate]);
+
+  // tick clock เพื่ออัพเดทข้อความ "ประมวลผลมาแล้ว N นาที"
+  useEffect(() => {
+    if (file.status !== "processing") return;
+    const tick = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(tick);
+  }, [file.status]);
 
   return (
     <main className="bg-background min-h-screen">
@@ -150,13 +168,33 @@ export default function AnalysisDetail({ loaderData }: Route.ComponentProps) {
           </div>
         </div>
 
-        {/* Status: Processing */}
-        {file.status === "processing" && (
+        {/* Status: Processing (stuck — เกิน 10 นาที) */}
+        {file.status === "processing" && stuck && (
+          <>
+            <Alert variant="destructive" className="mb-4">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle>การวิเคราะห์ค้างนานผิดปกติ</AlertTitle>
+              <AlertDescription>
+                ใช้เวลาเกิน 10 นาทีแล้ว อาจเกิดจากเซิร์ฟเวอร์รีสตาร์ทหรือการเชื่อมต่อขัดข้อง —
+                กดปุ่มด้านล่างเพื่อเริ่มวิเคราะห์ใหม่
+              </AlertDescription>
+            </Alert>
+            <div className="mb-6">
+              <RetryButton audioFileId={file.id} />
+            </div>
+          </>
+        )}
+
+        {/* Status: Processing (ปกติ) */}
+        {file.status === "processing" && !stuck && (
           <Alert className="mb-6">
             <Loader2 className="h-4 w-4 animate-spin" />
             <AlertTitle>กำลังวิเคราะห์...</AlertTitle>
             <AlertDescription>
               ระบบกำลังประมวลผล หน้านี้จะอัพเดทอัตโนมัติเมื่อเสร็จ
+              <span className="text-muted-foreground mt-1 block text-xs">
+                ประมวลผลมาแล้ว {formatElapsed(file.created_at, now)}
+              </span>
             </AlertDescription>
           </Alert>
         )}

@@ -31,6 +31,28 @@ export async function updateAudioFileStatus(
   if (error) throw error;
 }
 
+export async function updateAudioFileDuration(id: string, durationSec: number): Promise<void> {
+  const supabase = getSupabaseClient();
+  const { error } = await supabase
+    .from("audio_files")
+    .update({ duration: durationSec })
+    .eq("id", id);
+  if (error) throw error;
+}
+
+export async function resetAudioFileForRetry(id: string): Promise<void> {
+  const supabase = getSupabaseClient();
+  const { error } = await supabase
+    .from("audio_files")
+    .update({
+      status: "processing",
+      error_message: null,
+      created_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+  if (error) throw error;
+}
+
 export async function createAnalysisResult(
   data: Omit<AnalysisResult, "id" | "created_at">
 ): Promise<AnalysisResult> {

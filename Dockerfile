@@ -1,5 +1,6 @@
 FROM node:20-alpine AS development
 WORKDIR /app
+RUN apk add --no-cache ffmpeg
 ENV HUSKY=0
 ENV NODE_ENV=development
 COPY package.json yarn.lock /app/
@@ -24,7 +25,9 @@ RUN NODE_ENV=production yarn build
 
 FROM node:20-alpine
 ENV NODE_ENV=production
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+RUN apk add --no-cache ffmpeg && \
+    addgroup -S appgroup && \
+    adduser -S appuser -G appgroup
 COPY package.json /app/
 COPY --from=build-env /app/node_modules /app/node_modules
 COPY --from=build-env /app/build /app/build

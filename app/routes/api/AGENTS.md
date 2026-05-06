@@ -15,9 +15,9 @@ Applies to files under `app/routes/api/**`.
 
 ## Route Patterns
 
-- `*.delete-audio.tsx`: Audio cleanup/deletion handlers
-- `*.callback.tsx`: Webhook callback handlers from external services (n8n, etc.)
 - `*.upload.tsx`: File upload handlers
+- `*.analyze.tsx`, `*.retry.tsx`: Trigger analysis (direct, fire-and-forget)
+- `*.status.tsx`: Polling endpoint for analysis progress
 
 ## Implementation Guidelines
 
@@ -28,6 +28,5 @@ Applies to files under `app/routes/api/**`.
 
 ## Integration Points
 
-- n8n callbacks: Handle async analysis completion notifications
 - Supabase: Database updates for analysis status and results
 - MinIO: Audio file storage operations

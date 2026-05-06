@@ -1,6 +1,5 @@
 import { data } from "react-router";
 import { getAudioFileById, updateAudioFileStatus } from "~/lib/supabase.server";
-import { triggerAnalysis } from "~/lib/n8n.server";
 import { runAnalysis, cleanErrorMessage } from "~/lib/analysis.server";
 import { extractErrorMessage } from "~/lib/error-utils";
 import { logger } from "~/lib/logger";
@@ -25,20 +24,13 @@ export async function action({ request }: Route.ActionArgs) {
 
   await updateAudioFileStatus(audioFileId, "processing");
 
-  const skipN8n = process.env.SKIP_N8N === "true";
-  const analysisJob = skipN8n
-    ? () => runAnalysis(audioFileId, audioFile.filename, audioFile.original_name)
-    : () => triggerAnalysis(audioFileId, audioFile.filename, audioFile.original_name);
-
-  analysisJob().catch(async (err: unknown) => {
-    const message = cleanErrorMessage(extractErrorMessage(err));
-    logger.error("analyze:failed", {
-      audioFileId,
-      error: message,
-      mode: skipN8n ? "direct" : "n8n",
-    });
-    await updateAudioFileStatus(audioFileId, "error", message);
-  });
+  runAnalysis(audioFileId, audioFile.filename, audioFile.original_name).catch(
+    async (err: unknown) => {
+      const message = cleanErrorMessage(extractErrorMessage(err));
+      logger.error("analyze:failed", { audioFileId, error: message });
+      await updateAudioFileStatus(audioFileId, "error", message);
+    }
+  );
 
   return data({ audioFileId, status: "processing" }, { status: 202 });
 }
