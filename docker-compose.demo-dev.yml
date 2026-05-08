@@ -8,6 +8,7 @@ services:
       # Supabase - Required
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
       - SUPABASE_DB_SCHEMA=${SUPABASE_DB_SCHEMA}
       
       # MinIO - Required  
