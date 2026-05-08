@@ -146,6 +146,7 @@ LITELLM_API_KEY
 LITELLM_STT_MODEL        # เช่น gpt-4o-mini-transcribe
 LITELLM_ANALYSIS_MODEL   # เช่น claude-sonnet-4-6
 ANALYSIS_PROMPT_TEMPLATE # optional; ถ้าตั้งค่า จะ override prompt วิเคราะห์ (ใช้ `{TRANSCRIPTION}` เป็น placeholder ได้)
+ANALYSIS_SUMMARY_PROMPT  # optional; override เฉพาะคำสั่งสรุปผล และอัปเดต summary examples ใน default prompt ให้สอดคล้องกัน
 
 # MindsDB Integration (optional — semantic search + analytics agent)
 MINDSDB_HOST             # MindsDB server URL เช่น http://localhost:47334
