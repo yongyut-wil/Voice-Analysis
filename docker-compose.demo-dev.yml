@@ -8,6 +8,7 @@ services:
       # Supabase - Required
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - SUPABASE_DB_SCHEMA=${SUPABASE_DB_SCHEMA}
       
       # MinIO - Required  
       - MINIO_ENDPOINT=${MINIO_ENDPOINT:-minio}
@@ -24,15 +25,15 @@ services:
       - LITELLM_STT_MODEL=${LITELLM_STT_MODEL:-gpt-4o-mini-transcribe}
       - LITELLM_ANALYSIS_MODEL=${LITELLM_ANALYSIS_MODEL:-claude-3-5-sonnet-20241022}
       
-      # n8n - Required for workflow orchestration
-      - N8N_WEBHOOK_URL=${N8N_WEBHOOK_URL}
-      - N8N_ANALYSIS_WEBHOOK_PATH=${N8N_ANALYSIS_WEBHOOK_PATH:-/webhook/voice-analysis}
-      - N8N_CALLBACK_BASE_URL=${N8N_CALLBACK_BASE_URL}
-      - N8N_CALLBACK_SECRET=${N8N_CALLBACK_SECRET}
-      
       # MindsDB - Optional (ถ้าใช้ MindsDB ใน compose)
       - MINDSDB_HOST=${MINDSDB_HOST:-http://mindsdb:47334}
       - MINDSDB_API_KEY=${MINDSDB_API_KEY:-}
+      - MINDSDB_USERNAME=${MINDSDB_USERNAME:-}
+      - MINDSDB_PASSWORD=${MINDSDB_PASSWORD:-}
+      
+
+      # Authentik - Required
+      - AUTHENTIK_AUTHORIZE_URL=${AUTHENTIK_AUTHORIZE_URL}
       
       - NODE_ENV=production
     ports:
