@@ -7,10 +7,10 @@
 
 ## สถานะรวม
 
-| Phase       | รายการ                               | สถานะ                                          |
-| ----------- | ------------------------------------ | ---------------------------------------------- |
-| **Phase 1** | Email/Password Login (Supabase Auth) | ✅ Code Done — รอ apply RLS migration          |
-| **Phase 2** | Authentik SSO Integration            | ⚙️ Code พร้อม — รอ Authentik + Supabase config |
+| Phase       | รายการ                               | สถานะ                                                    |
+| ----------- | ------------------------------------ | -------------------------------------------------------- |
+| **Phase 1** | Email/Password Login (Supabase Auth) | ✅ Code Done — รอ apply RLS migration                    |
+| **Phase 2** | Authentik SSO Integration            | ✅ Done — ทดสอบบน dev-voice-analysis สำเร็จ (2026-05-06) |
 
 ---
 
@@ -97,41 +97,37 @@ curl -X POST http://localhost:3000/api/callback/status \
 
 ---
 
-## Phase 2: Authentik SSO — ⚙️ Implementation Runbook
+## Phase 2: Authentik SSO — ✅ Done (2026-05-06)
 
 > เอกสารเต็ม: **`docs/authentik-sso-integration.md`**
+> คู่มือ self-hosted (พร้อมปัญหาที่เจอจริง): **`docs/authentik-selfhosted-guide.md`**
 
-### ขั้นตอนสรุป (6 steps)
+### สิ่งที่ implement จริง
 
-1. **Deploy Authentik** (ถ้ายังไม่มี)
+Self-hosted Supabase ใช้ **keycloak provider + nginx oidc-proxy** แทน `GOTRUE_EXTERNAL_AUTHENTIK_*` เพราะ GoTrue v2 ไม่มี built-in "authentik" provider
 
-   ```bash
-   cp .env.authentik.example .env.authentik
-   # เติม PG_PASS, AUTHENTIK_SECRET_KEY, AUTHENTIK_BOOTSTRAP_PASSWORD
-   docker compose -f docker-compose.authentik.yml --env-file .env.authentik up -d
-   # เปิด http://localhost:9000/if/flow/initial-setup/
-   ```
+| Component       | รายละเอียด                                                                        |
+| --------------- | --------------------------------------------------------------------------------- |
+| GoTrue provider | `keycloak` (built-in, รับ custom URL ได้)                                         |
+| oidc-proxy      | nginx container แปลง Keycloak URL paths → Authentik paths                         |
+| URL rewrite     | App server-side fetch GoTrue redirect → rewrite `oidc-proxy` → Authentik URL จริง |
+| env var ใหม่    | `AUTHENTIK_AUTHORIZE_URL` ในไฟล์ `.env` ของ app                                   |
 
-2. **สร้าง Authentik Application + OAuth2/OIDC Provider**
-   - Client Type: Confidential
-   - Redirect URI: `<supabase-url>/auth/v1/callback`
-   - Scopes: openid, profile, email
-   - จด Client ID, Client Secret, Issuer URL (มี trailing slash)
+### Supabase Cloud (ยังทำได้ตามเดิม)
 
-3. **Config Supabase GoTrue** (เลือกวิธีตาม deployment):
-   - **Self-hosted**: เพิ่ม `GOTRUE_EXTERNAL_AUTHENTIK_*` env vars → restart supabase-auth
-   - **Cloud**: Dashboard → Auth → Providers → Add Custom OIDC (slug = `authentik`)
+Dashboard → Auth → Providers → Add Custom OIDC (slug = `authentik`) — ไม่มีข้อจำกัดของ GoTrue
 
-4. **ตรวจสอบ Supabase ยอมรับ Authentik**
+### สถานะ tasks
 
-   ```bash
-   curl <supabase-url>/auth/v1/settings | jq '.external.authentik'
-   # { "enabled": true }
-   ```
-
-5. **App activation**: SSO button uncommented แล้ว — ไม่ต้องแก้โค้ดเพิ่ม
-
-6. **ทดสอบ E2E**: login → analyses → upload → logout
+```
+Phase 2
+  [x] สร้าง nginx oidc-proxy container
+  [x] Config GoTrue KEYCLOAK provider ชี้ไป oidc-proxy
+  [x] App: server-side URL rewrite ใน auth.login.tsx
+  [x] ทดสอบ SSO login flow E2E บน dev-voice-analysis ✓
+  [ ] Apply 004_add_user_id.sql ใน Supabase (RLS)
+  [ ] ทดสอบ upload → user_id บันทึกถูกต้อง
+```
 
 ---
 
@@ -182,9 +178,11 @@ Phase 1
   [ ] ยืนยัน n8n callbacks ยังทำงานได้
 
 Phase 2
-  [ ] รัน docker-compose.authentik.yml (ถ้า self-host)
-  [ ] สร้าง Application + OIDC Provider ใน Authentik
-  [ ] Config Supabase: GoTrue env (self-hosted) หรือ Dashboard (Cloud)
-  [x] Uncomment SSO button ใน auth.login.tsx
-  [ ] ทดสอบ SSO login flow E2E
+  [x] สร้าง nginx oidc-proxy container ใน Supabase docker-compose
+  [x] Config GoTrue: KEYCLOAK provider → oidc-proxy → Authentik
+  [x] App: server-side URL rewrite (AUTHENTIK_AUTHORIZE_URL env var)
+  [x] SSO button ใน auth.login.tsx active แล้ว
+  [x] ทดสอบ SSO login flow E2E บน dev-voice-analysis
+  [ ] Apply 004_add_user_id.sql ใน Supabase (RLS migration)
+  [ ] ทดสอบ upload → ตรวจสอบ user_id บันทึกถูกต้อง
 ```
